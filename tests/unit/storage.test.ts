@@ -67,7 +67,7 @@ it('settingsUpdatesValidateAndPersistInteractionPreferences', async () => {
   expect(await settings.get()).toEqual(updated)
   expect(() => settingsSchema.parse({ sftpMode: 'other' })).toThrow()
 })
-it('moves legacy stable settings to prerelease once and preserves a later stable choice', async () => {
+it('preserves existing channel choices and defaults new beta installs to stable', async () => {
   const file = await fixture()
   await writeFile(
     file,
@@ -75,7 +75,7 @@ it('moves legacy stable settings to prerelease once and preserves a later stable
   )
   const repository = new SettingsRepository(file)
   expect(await repository.get()).toMatchObject({
-    updateChannel: 'prerelease',
+    updateChannel: 'stable',
     updateChannelPolicy: 1,
     terminalFontSize: 19,
   })
@@ -85,4 +85,17 @@ it('moves legacy stable settings to prerelease once and preserves a later stable
     updateChannelPolicy: 1,
     terminalFontSize: 19,
   })
+})
+
+it('preserves the prerelease opt-in from an alpha installation', async () => {
+  const file = await fixture()
+  await writeFile(
+    file,
+    JSON.stringify({
+      schemaVersion: 1,
+      data: { updateChannel: 'prerelease', updateChannelPolicy: 1 },
+    }),
+  )
+  expect((await new SettingsRepository(file).get()).updateChannel).toBe('prerelease')
+  expect((await new SettingsRepository(await fixture()).get()).updateChannel).toBe('stable')
 })

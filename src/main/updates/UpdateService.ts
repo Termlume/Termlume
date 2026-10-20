@@ -157,7 +157,7 @@ export class UpdateService {
     this.active = 'channel'
     try {
       const settings = await persist()
-      const next = settings.updateChannel ?? 'prerelease'
+      const next = settings.updateChannel ?? 'stable'
       if (next !== this.value.channel) {
         this.configure(next)
         const disabled = this.value.state === 'disabled'

@@ -56,7 +56,7 @@ it('stable excludes all prereleases even from alpha; opt-in accepts stable witho
   expect((await service.check()).state).toBe('available')
   expect(service.status().version).toBe('0.2.0')
   expect(settingsPatchSchema.parse({})).toEqual({})
-  expect(settingsSchema.parse({}).updateChannel).toBe('prerelease')
+  expect(settingsSchema.parse({}).updateChannel).toBe('stable')
   service.dispose()
 })
 it('locks channel while checking and prevents stale progress after channel switch', async () => {

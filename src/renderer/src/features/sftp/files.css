@@ -37,12 +37,14 @@
   padding: 6px 8px;
   text-align: left;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: inherit;
 }
 .file-column-resize {
   border-right: 1px solid var(--border);
   position: absolute;
-  right: -3px;
+  right: 0;
   top: 0;
   bottom: 0;
   width: 7px;

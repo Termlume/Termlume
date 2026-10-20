@@ -1,0 +1,60 @@
+.macros-settings {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 5px;
+}
+.macro-edit-list {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.macro-editor {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.macro-editor legend {
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.macro-editor label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.macro-editor input {
+  width: 100%;
+}
+.macro-editor-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 31px;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+.macro-command {
+  font-family: Consolas, monospace;
+}
+.macro-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 650px) {
+  .macro-editor-heading {
+    grid-template-columns: minmax(0, 1fr) 31px;
+  }
+  .macro-editor-heading label:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .macro-editor-heading button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}

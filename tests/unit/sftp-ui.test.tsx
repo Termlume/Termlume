@@ -57,7 +57,7 @@ it('offers editor modes, properties and explicit row rename from context menu', 
   expect(screen.queryByRole('menu')).toBeNull()
   fireEvent.contextMenu(row)
   fireEvent.click(screen.getByRole('menuitem', { name: 'Переименовать' }))
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'updated' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Имя', exact: true }), { target: { value: 'updated' } })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await waitFor(() =>
     expect(mutate).toHaveBeenCalledWith(

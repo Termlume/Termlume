@@ -25,7 +25,6 @@ export function Sidebar({
     <>
       <div className="sidebar-heading">
         <div>
-          <span className="eyebrow">ЛИЧНОЕ ПРОСТРАНСТВО</span>
           <h2>{ru.connections}</h2>
         </div>
         <button className="icon-button new-icon" aria-label={ru.newConnection} onClick={onNew}>

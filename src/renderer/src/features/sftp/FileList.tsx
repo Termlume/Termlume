@@ -27,6 +27,7 @@ export function FileList({
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void
 }) {
   const dragging = useRef<FileEntry | undefined>(undefined)
+  const table = useRef<HTMLTableElement>(null)
   useEffect(() => {
     const leave = (event: DragEvent) => {
       const entry = dragging.current
@@ -102,8 +103,15 @@ export function FileList({
     group: 90,
   })
   function resize(key: Column, value: number, min: number) {
-    setWidths((current) => ({ ...current, [key]: Math.max(min, Math.min(1000, value)) }))
+    const next = columns[columns.findIndex((column) => column.key === key) + 1]
+    if (!next) return
+    setWidths((current) => {
+      const combined = current[key] + current[next.key]
+      const width = Math.max(min, Math.min(combined - next.min, value))
+      return { ...current, [key]: width, [next.key]: combined - width }
+    })
   }
+  const totalWidth = columns.reduce((sum, column) => sum + widths[column.key], 0)
   const sorted = [...entries].sort((a, b) => {
     const folders = Number(b.type === 'directory') - Number(a.type === 'directory')
     if (folders) return folders
@@ -118,18 +126,18 @@ export function FileList({
   })
   return (
     <div className="file-table-wrap">
-      <table
-        className={'file-table ' + (showPermissions ? 'with-permissions' : '')}
-        style={{ minWidth: columns.reduce((sum, column) => sum + widths[column.key], 0) }}
-      >
+      <table ref={table} className={'file-table ' + (showPermissions ? 'with-permissions' : '')}>
         <colgroup>
           {columns.map((column) => (
-            <col key={column.key} style={{ width: widths[column.key] }} />
+            <col
+              key={column.key}
+              style={{ width: `${(widths[column.key] / totalWidth) * 100}%` }}
+            />
           ))}
         </colgroup>
         <thead>
           <tr>
-            {columns.map((column) => (
+            {columns.map((column, index) => (
               <th
                 key={column.key}
                 aria-sort={
@@ -138,6 +146,8 @@ export function FileList({
               >
                 <button
                   className="file-sort"
+                  title={column.label}
+                  aria-label={column.label}
                   onClick={() =>
                     setSort((current) => ({
                       key: column.key,
@@ -148,42 +158,48 @@ export function FileList({
                   {column.label}
                   {sort.key === column.key ? (sort.descending ? ' ↓' : ' ↑') : ''}
                 </button>
-                <span
-                  className="file-column-resize"
-                  role="separator"
-                  tabIndex={0}
-                  aria-label={`Ширина: ${column.label}`}
-                  aria-orientation="vertical"
-                  aria-valuemin={column.min}
-                  aria-valuemax={1000}
-                  aria-valuenow={widths[column.key]}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                {index < columns.length - 1 && (
+                  <span
+                    className="file-column-resize"
+                    role="separator"
+                    tabIndex={0}
+                    aria-label={`Ширина: ${column.label}`}
+                    aria-orientation="vertical"
+                    aria-valuemin={column.min}
+                    aria-valuemax={
+                      widths[column.key] + widths[columns[index + 1].key] - columns[index + 1].min
+                    }
+                    aria-valuenow={widths[column.key]}
+                    aria-valuetext={`${Math.round((widths[column.key] / totalWidth) * 100)}% ширины таблицы`}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                        event.preventDefault()
+                        resize(
+                          column.key,
+                          widths[column.key] + (event.key === 'ArrowRight' ? 10 : -10),
+                          column.min,
+                        )
+                      }
+                    }}
+                    onPointerDown={(event) => {
                       event.preventDefault()
-                      resize(
-                        column.key,
-                        widths[column.key] + (event.key === 'ArrowRight' ? 10 : -10),
-                        column.min,
-                      )
-                    }
-                  }}
-                  onPointerDown={(event) => {
-                    event.preventDefault()
-                    const start = event.clientX,
-                      width = widths[column.key]
-                    event.currentTarget.setPointerCapture?.(event.pointerId)
-                    const move = (next: PointerEvent) =>
-                      resize(column.key, width + next.clientX - start, column.min)
-                    const stop = () => {
-                      window.removeEventListener('pointermove', move)
-                      window.removeEventListener('pointerup', stop)
-                      window.removeEventListener('pointercancel', stop)
-                    }
-                    window.addEventListener('pointermove', move)
-                    window.addEventListener('pointerup', stop)
-                    window.addEventListener('pointercancel', stop)
-                  }}
-                />
+                      const start = event.clientX,
+                        width = widths[column.key],
+                        scale = totalWidth / (table.current?.clientWidth || totalWidth)
+                      event.currentTarget.setPointerCapture?.(event.pointerId)
+                      const move = (next: PointerEvent) =>
+                        resize(column.key, width + (next.clientX - start) * scale, column.min)
+                      const stop = () => {
+                        window.removeEventListener('pointermove', move)
+                        window.removeEventListener('pointerup', stop)
+                        window.removeEventListener('pointercancel', stop)
+                      }
+                      window.addEventListener('pointermove', move)
+                      window.addEventListener('pointerup', stop)
+                      window.addEventListener('pointercancel', stop)
+                    }}
+                  />
+                )}
               </th>
             ))}
           </tr>
@@ -291,7 +307,13 @@ export function FileList({
                   )}
                 </div>
               </td>
-              <td>
+              <td
+                title={
+                  entry.type === 'directory'
+                    ? 'Папка'
+                    : `${entry.size.toLocaleString('ru-RU')} байт`
+                }
+              >
                 {entry.type === 'directory'
                   ? '—'
                   : entry.size < 1024
@@ -300,12 +322,20 @@ export function FileList({
                       ? (entry.size / 1024).toFixed(1) + ' KB'
                       : (entry.size / 1048576).toFixed(1) + ' MB'}
               </td>
-              <td>{new Date(entry.modifiedAt).toLocaleDateString('ru-RU')}</td>
+              <td title={new Date(entry.modifiedAt).toLocaleString('ru-RU')}>
+                {new Date(entry.modifiedAt).toLocaleDateString('ru-RU')}
+              </td>
               {showPermissions && (
                 <>
                   <td title={entry.owner}>{entry.owner || '—'}</td>
                   <td title={entry.group}>{entry.group || '—'}</td>
-                  <td>
+                  <td
+                    title={
+                      entry.permissions === undefined
+                        ? undefined
+                        : formatPermissions(entry.permissions)
+                    }
+                  >
                     {entry.permissions === undefined ? '—' : formatPermissions(entry.permissions)}
                   </td>
                 </>

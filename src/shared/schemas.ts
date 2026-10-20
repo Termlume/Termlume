@@ -90,7 +90,35 @@ export const shortcutBindingsSchema = z
     const message = shortcutBindingsError(value)
     if (message) context.addIssue({ code: 'custom', message })
   })
+export const terminalMacroSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Укажите имя макроса.')
+    .max(40)
+    .regex(/^[\p{L}\p{N}_-]+$/u, 'Имя: буквы, цифры, дефис или подчёркивание.'),
+  command: z
+    .string()
+    .min(1, 'Укажите команду макроса.')
+    .max(4096)
+    .refine(
+      (value) => value.trim().length > 0 && !/[\x00-\x1f\x7f]/.test(value),
+      'Команда должна занимать одну строку.',
+    ),
+  description: z.string().max(200).default(''),
+})
+export const terminalMacrosSchema = z
+  .array(terminalMacroSchema)
+  .max(100)
+  .superRefine((items, context) => {
+    if (new Set(items.map((item) => item.name.toLocaleLowerCase())).size !== items.length)
+      context.addIssue({ code: 'custom', message: 'Имена макросов должны быть уникальными.' })
+    if (new Set(items.map((item) => item.id)).size !== items.length)
+      context.addIssue({ code: 'custom', message: 'Повторяющийся идентификатор макроса.' })
+  })
 export const settingsSchema = z.object({
+  macros: terminalMacrosSchema.default([]),
   dismissedUpdateVersion: z.string().max(100).optional(),
   updateChannelPolicy: z.literal(1).optional(),
   monitoringItems: z
@@ -99,8 +127,9 @@ export const settingsSchema = z.object({
     .default(DEFAULT_MONITOR_ITEMS),
   connectionsCollapsed: z.boolean().default(false),
   collapsedHostGroups: z.array(z.string().max(220)).max(1000).default([]),
+  hostGroupOrder: z.array(z.string().max(100)).max(1000).default([]),
   monitoringPlacement: z.enum(['sidebar', 'under-terminal']).default('sidebar'),
-  updateChannel: z.enum(['stable', 'prerelease']).default('prerelease'),
+  updateChannel: z.enum(['stable', 'prerelease']).default('stable'),
   shortcutBindings: shortcutBindingsSchema.optional(),
   themeId: z
     .enum([
@@ -134,11 +163,13 @@ export const settingsSchema = z.object({
 // Zod 4 applies defaults even inside partial() fields. IPC patches must contain
 // only supplied values, otherwise unrelated updates overwrite saved preferences.
 export const settingsPatchSchema = z.object({
+  macros: settingsSchema.shape.macros.removeDefault().optional(),
   dismissedUpdateVersion: settingsSchema.shape.dismissedUpdateVersion,
   updateChannelPolicy: settingsSchema.shape.updateChannelPolicy,
   monitoringItems: settingsSchema.shape.monitoringItems.removeDefault().optional(),
   connectionsCollapsed: settingsSchema.shape.connectionsCollapsed.removeDefault().optional(),
   collapsedHostGroups: settingsSchema.shape.collapsedHostGroups.removeDefault().optional(),
+  hostGroupOrder: settingsSchema.shape.hostGroupOrder.removeDefault().optional(),
   monitoringPlacement: settingsSchema.shape.monitoringPlacement.removeDefault().optional(),
   updateChannel: settingsSchema.shape.updateChannel.removeDefault().optional(),
   shortcutBindings: settingsSchema.shape.shortcutBindings,

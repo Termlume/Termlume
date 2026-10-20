@@ -5,6 +5,7 @@ import type { Settings, UpdateStatus } from '../../../../shared/contracts'
 import changelog from '../../../../../CHANGELOG.md?raw'
 import { releaseNotesText, changelogVersion } from './release-notes'
 import './updates.css'
+import { displayVersion } from '../../../../shared/version'
 
 export function UpdateNotice({
   settings,
@@ -23,7 +24,9 @@ export function UpdateNotice({
   const dialogVersion = useRef<string | undefined>(undefined)
   const installWhenReady = useRef(false)
   const modal = useRef<HTMLElement>(null)
-  useLayoutEffect(() => { onOpenChange?.(open) }, [open, onOpenChange])
+  useLayoutEffect(() => {
+    onOpenChange?.(open)
+  }, [open, onOpenChange])
   useEffect(() => () => onOpenChange?.(false), [onOpenChange])
   useEffect(() => {
     const api = window.terminalApi.updates
@@ -121,7 +124,7 @@ export function UpdateNotice({
       >
         {actionable ? <Download size={12} /> : <RefreshCw size={12} />}
         <span>
-          {status?.currentVersion || 'Termlume'}
+          {displayVersion(status?.currentVersion) || 'Termlume'}
           {actionable ? ' · обновление' : ''}
         </span>
       </button>
@@ -130,106 +133,113 @@ export function UpdateNotice({
           {error}
         </span>
       )}
-      {open && createPortal(
-        <div
-          className="modal-backdrop update-dialog-backdrop"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              event.stopPropagation()
-              void later()
-            }
-            if (event.key === 'Tab') {
-              const controls = Array.from(
-                modal.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ||
-                  [],
-              )
-              if (!controls.length) return
-              if (
-                event.shiftKey &&
-                (document.activeElement === controls[0] || document.activeElement === modal.current)
-              ) {
+      {open &&
+        createPortal(
+          <div
+            className="modal-backdrop update-dialog-backdrop"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
                 event.preventDefault()
-                controls.at(-1)?.focus()
-              } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
-                event.preventDefault()
-                controls[0].focus()
+                event.stopPropagation()
+                void later()
               }
-            }
-          }}
-        >
-          <section
-            className="modal update-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label={actionable ? 'Доступно обновление Termlume' : 'Обновления Termlume'}
-            tabIndex={-1}
-            ref={modal}
+              if (event.key === 'Tab') {
+                const controls = Array.from(
+                  modal.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ||
+                    [],
+                )
+                if (!controls.length) return
+                if (
+                  event.shiftKey &&
+                  (document.activeElement === controls[0] ||
+                    document.activeElement === modal.current)
+                ) {
+                  event.preventDefault()
+                  controls.at(-1)?.focus()
+                } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
+                  event.preventDefault()
+                  controls[0].focus()
+                }
+              }
+            }}
           >
-            <button
-              className="icon-button update-dialog-close"
-              aria-label="Закрыть окно обновления"
-              onClick={() => void later()}
+            <section
+              className="modal update-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={actionable ? 'Доступно обновление Termlume' : 'Обновления Termlume'}
+              tabIndex={-1}
+              ref={modal}
             >
-              <X size={18} />
-            </button>
-            <div className="update-dialog-symbol">
-              <Sparkles size={30} />
-            </div>
-            <h2>{actionable ? 'Доступно новое обновление' : 'Обновления Termlume'}</h2>
-            <p className="muted">
-              {actionable
-                ? `Termlume ${status?.version}`
-                : `Установлена версия ${status?.currentVersion || ''}`}
-            </p>
-            <div className="update-whats-new">
-              <h3>Что нового</h3>
-              <div>
-                {notes ||
-                  (actionable
-                    ? 'Описание изменений не опубликовано для этой версии.'
-                    : 'Новых обновлений пока не найдено.')}
+              <button
+                className="icon-button update-dialog-close"
+                aria-label="Закрыть окно обновления"
+                onClick={() => void later()}
+              >
+                <X size={18} />
+              </button>
+              <div className="update-dialog-symbol">
+                <Sparkles size={30} />
               </div>
-            </div>
-            {status?.state === 'downloading' && (
-              <>
-                <progress aria-label="Загрузка обновления" max={100} value={status.percent || 0} />
-                <p role="status">Загрузка: {Math.floor(status.percent || 0)}%</p>
-              </>
-            )}
-            {status?.state === 'downloaded' && (
-              <p role="status">Обновление скачано и готово к установке.</p>
-            )}
-            {status?.state === 'disabled' && <p className="muted small">{status.message}</p>}
-            {error && (
-              <p className="error-message" role="alert">
-                {error}
+              <h2>{actionable ? 'Доступно новое обновление' : 'Обновления Termlume'}</h2>
+              <p className="muted">
+                {actionable
+                  ? `Termlume ${displayVersion(status?.version)}`
+                  : `Установлена версия ${displayVersion(status?.currentVersion)}`}
               </p>
-            )}
-            <button
-              className="primary-button"
-              disabled={busy || !status || status.state === 'disabled'}
-              onClick={() => void update()}
-            >
-              {status?.state === 'available'
-                ? 'Обновить сейчас'
-                : status?.state === 'downloaded'
-                  ? 'Перезапустить и установить'
-                  : busy
-                    ? 'Пожалуйста, подождите…'
-                    : 'Проверить обновления'}
-            </button>
-            <button className="text-button" onClick={() => void later()}>
-              {actionable ? 'Возможно позже' : 'Закрыть'}
-            </button>
-            {actionable && (
-              <small className="muted">
-                Можно обновиться позже в настройках или нажать на индикатор версии.
-              </small>
-            )}
-          </section>
-        </div>, document.body
-      )}
+              <div className="update-whats-new">
+                <h3>Что нового</h3>
+                <div>
+                  {notes ||
+                    (actionable
+                      ? 'Описание изменений не опубликовано для этой версии.'
+                      : 'Новых обновлений пока не найдено.')}
+                </div>
+              </div>
+              {status?.state === 'downloading' && (
+                <>
+                  <progress
+                    aria-label="Загрузка обновления"
+                    max={100}
+                    value={status.percent || 0}
+                  />
+                  <p role="status">Загрузка: {Math.floor(status.percent || 0)}%</p>
+                </>
+              )}
+              {status?.state === 'downloaded' && (
+                <p role="status">Обновление скачано и готово к установке.</p>
+              )}
+              {status?.state === 'disabled' && <p className="muted small">{status.message}</p>}
+              {error && (
+                <p className="error-message" role="alert">
+                  {error}
+                </p>
+              )}
+              <button
+                className="primary-button"
+                disabled={busy || !status || status.state === 'disabled'}
+                onClick={() => void update()}
+              >
+                {status?.state === 'available'
+                  ? 'Обновить сейчас'
+                  : status?.state === 'downloaded'
+                    ? 'Перезапустить и установить'
+                    : busy
+                      ? 'Пожалуйста, подождите…'
+                      : 'Проверить обновления'}
+              </button>
+              <button className="text-button" onClick={() => void later()}>
+                {actionable ? 'Возможно позже' : 'Закрыть'}
+              </button>
+              {actionable && (
+                <small className="muted">
+                  Можно обновиться позже в настройках или нажать на индикатор версии.
+                </small>
+              )}
+            </section>
+          </div>,
+          document.body,
+        )}
     </>
   )
 }

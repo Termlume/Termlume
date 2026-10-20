@@ -12,7 +12,7 @@ export class SettingsRepository {
     return this.store.update((current) =>
       current.updateChannelPolicy === 1
         ? current
-        : settingsSchema.parse({ ...current, updateChannel: 'prerelease', updateChannelPolicy: 1 }),
+        : settingsSchema.parse({ ...current, updateChannelPolicy: 1 }),
     )
   }
   get warning() {
@@ -31,7 +31,6 @@ export class SettingsRepository {
     return this.store.update((current) =>
       settingsSchema.parse({
         ...current,
-        ...(current.updateChannelPolicy !== 1 ? { updateChannel: 'prerelease' } : {}),
         ...patch,
         updateChannelPolicy: 1,
       }),

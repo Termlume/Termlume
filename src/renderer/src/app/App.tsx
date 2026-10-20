@@ -10,6 +10,7 @@ import { applyTheme } from '../themes/apply-theme'
 import type { HostProfile, Settings } from '../../../shared/contracts'
 import { useHosts, filterHosts } from '../features/hosts/useHosts'
 import { HostList } from '../features/hosts/HostList'
+import { orderedGroups, moveGroup } from '../features/hosts/group-order'
 import { HostEditor } from '../features/hosts/HostEditor'
 import { QuickConnect } from '../features/hosts/QuickConnect'
 import { useSessions } from '../features/sessions/useSessions'
@@ -202,7 +203,15 @@ export default function App() {
             defaultLocalShell={settings?.localShell}
           />
         }
-        updateIndicator={settings && <UpdateNotice settings={settings} onSaved={setSettings} onOpenChange={setUpdateDialogOpen} />}
+        updateIndicator={
+          settings && (
+            <UpdateNotice
+              settings={settings}
+              onSaved={setSettings}
+              onOpenChange={setUpdateDialogOpen}
+            />
+          )
+        }
         footer={
           activeTab && (
             <span>
@@ -228,6 +237,14 @@ export default function App() {
                   hosts={filterHosts(catalog.hosts, search, favoriteOnly)}
                   onConnect={openHost}
                   collapsedGroups={settings?.collapsedHostGroups}
+                  groupOrder={settings?.hostGroupOrder}
+                  onReorderGroup={(source, target, position) => {
+                    const groups = orderedGroups(
+                      catalog.hosts.map((host) => host.group || ''),
+                      settings?.hostGroupOrder,
+                    )
+                    savePreference({ hostGroupOrder: moveGroup(groups, source, target, position) })
+                  }}
                   searchActive={Boolean(search.trim())}
                   onToggleGroup={(group) => {
                     const current = settings?.collapsedHostGroups || []

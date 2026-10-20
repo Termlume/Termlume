@@ -10,6 +10,7 @@ import {
   Search,
 } from 'lucide-react'
 import { ru } from './ru'
+import { APP_DISPLAY_VERSION } from '../../../shared/version'
 interface Props {
   sidebar: ReactNode
   children: ReactNode
@@ -90,14 +91,13 @@ export function Shell({
         >
           <CircleHelp size={21} />
         </button>
-        <span className="avatar">Л</span>
       </nav>
       <aside className="sidebar">
         {sidebar}
         <div className="sidebar-bottom">
           <ShieldCheck size={15} />
           <span>{ru.localStorage}</span>
-          <span className="version">0.1 α</span>
+          <span className="version">{APP_DISPLAY_VERSION}</span>
         </div>
       </aside>
       <section className="workspace">

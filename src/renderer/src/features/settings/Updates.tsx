@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, RefreshCw } from 'lucide-react'
 import type { Settings, UpdateStatus } from '../../../../shared/contracts'
 import './updates.css'
+import { APP_DISPLAY_VERSION, displayVersion } from '../../../../shared/version'
 
 export function Updates({
   settings,
@@ -11,7 +12,7 @@ export function Updates({
   onSaved: (settings: Settings) => void
 }) {
   const [status, setStatus] = useState<UpdateStatus>()
-  const [channel, setChannel] = useState(settings.updateChannel ?? 'prerelease')
+  const [channel, setChannel] = useState(settings.updateChannel ?? 'stable')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const mounted = useRef(true)
@@ -41,7 +42,7 @@ export function Updates({
       unsubscribe()
     }
   }, [])
-  useEffect(() => setChannel(settings.updateChannel ?? 'prerelease'), [settings.updateChannel])
+  useEffect(() => setChannel(settings.updateChannel ?? 'stable'), [settings.updateChannel])
   const busy =
     pending ||
     status?.state === 'checking' ||
@@ -97,13 +98,13 @@ export function Updates({
       : status.state === 'checking'
         ? 'Проверяем наличие новой версии…'
         : status.state === 'available'
-          ? `Доступна версия ${status.version ?? ''}`
+          ? `Доступна версия ${displayVersion(status.version)}`
           : status.state === 'not-available'
             ? 'Установлена актуальная версия для выбранного канала.'
             : status.state === 'downloading'
               ? `Загрузка обновления: ${Math.floor(percent)}%`
               : status.state === 'downloaded'
-                ? `Версия ${status.version ?? ''} готова к установке.`
+                ? `Версия ${displayVersion(status.version)} готова к установке.`
                 : status.state === 'installing'
                   ? 'Запускаем установку…'
                   : status.state === 'error'
@@ -113,7 +114,11 @@ export function Updates({
     <section className="updates-settings" aria-label="Обновления приложения">
       <div className="updates-heading">
         <h3>Обновления</h3>
-        <span>{status ? `Установлена ${status.currentVersion}` : 'Termlume · alpha'}</span>
+        <span>
+          {status
+            ? `Установлена ${displayVersion(status.currentVersion)}`
+            : `Termlume ${APP_DISPLAY_VERSION}`}
+        </span>
       </div>
       <label>
         Канал обновлений
@@ -123,7 +128,7 @@ export function Updates({
           disabled={busy || disabled || !status}
           onChange={(event) => void changeChannel(event.target.value as 'stable' | 'prerelease')}
         >
-          <option value="stable">Стабильные версии</option>
+          <option value="stable">Основной канал</option>
           <option value="prerelease">Предварительные версии</option>
         </select>
       </label>

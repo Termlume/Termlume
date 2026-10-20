@@ -67,8 +67,10 @@ jobs:
           }
           $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
           ($notes -join "`n").Trim() | Set-Content -LiteralPath $notesFile -Encoding utf8NoBOM
-          $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $env:RELEASE_TAG", '--notes-file', $notesFile, '--verify-tag')
-          if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' }
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $displayVersion = if ($package.displayVersion) { $package.displayVersion } else { $version }
+          $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $displayVersion", '--notes-file', $notesFile, '--verify-tag')
+          if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' } else { $options += '--latest' }
           & gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
             & gh release upload $env:RELEASE_TAG @assets --clobber

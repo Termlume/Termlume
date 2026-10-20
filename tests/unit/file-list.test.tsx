@@ -63,7 +63,10 @@ it('sorts by numeric columns in both directions while keeping folders first and 
   const handle = screen.getByRole('separator', { name: 'Ширина: Имя' })
   fireEvent.keyDown(handle, { key: 'ArrowRight' })
   expect(handle.getAttribute('aria-valuenow')).toBe('190')
-  expect(view.container.querySelector('col')?.style.width).toBe('190px')
+  const columns = [...view.container.querySelectorAll('col')]
+  expect(columns[0].style.width).toContain('%')
+  expect(columns.reduce((sum, column) => sum + parseFloat(column.style.width), 0)).toBeCloseTo(100)
+  expect(view.container.querySelector('table')?.style.minWidth).toBe('')
 })
 
 it('keeps in-window drags in Chromium and starts native drag only outside the window', () => {

@@ -1,6 +1,6 @@
 {
   "name": "termlume",
-  "version": "0.1.0-alpha.4",
+  "version": "0.2.1",
   "private": true,
   "description": "SSH, SFTP, Telnet and WSL terminal for Windows",
   "main": "out/main/index.js",
@@ -58,5 +58,6 @@
   "homepage": "https://github.com/Termlume/Termlume",
   "bugs": {
     "url": "https://github.com/Termlume/Termlume/issues"
-  }
+  },
+  "displayVersion": "0.2.1b"
 }

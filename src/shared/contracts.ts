@@ -265,12 +265,20 @@ export interface UpdateStatus {
   error?: string
   message?: string
 }
+export interface TerminalMacro {
+  id: string
+  name: string
+  command: string
+  description: string
+}
 export interface Settings {
+  macros?: TerminalMacro[]
   dismissedUpdateVersion?: string
   updateChannelPolicy?: 1
   monitoringItems?: import('./monitoring-items').MonitorItem[]
   connectionsCollapsed?: boolean
   collapsedHostGroups?: string[]
+  hostGroupOrder?: string[]
   monitoringPlacement?: 'sidebar' | 'under-terminal'
   updateChannel?: UpdateChannel
   shortcutBindings?: import('./keyboard-shortcuts').ShortcutBindings

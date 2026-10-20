@@ -148,7 +148,7 @@ async function createWindow(): Promise<void> {
     autoUpdater,
     {
       currentVersion: app.getVersion(),
-      channel: settings?.updateChannel ?? 'prerelease',
+      channel: settings?.updateChannel ?? 'stable',
       enabled:
         process.platform === 'win32' &&
         app.isPackaged &&

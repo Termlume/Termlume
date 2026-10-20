@@ -11,6 +11,8 @@ import type { Settings, ThemeId } from '../../../../shared/contracts'
 import { ru } from '../../app/ru'
 import { DataTransfer } from './DataTransfer'
 import { Updates } from './Updates'
+import { Macros } from './Macros'
+import { terminalMacrosSchema } from '../../../../shared/schemas'
 export function Appearance({
   settings,
   onSaved,
@@ -39,6 +41,8 @@ export function Appearance({
       settings.monitoringIntervalSeconds ?? 3,
     ),
     [smoothInput, setSmoothInput] = useState(settings.smoothInput),
+    [macros, setMacros] = useState(settings.macros ?? []),
+    [macroError, setMacroError] = useState(''),
     [monitoringPlacement, setMonitoringPlacement] = useState(
       settings.monitoringPlacement ?? 'sidebar',
     ),
@@ -58,6 +62,12 @@ export function Appearance({
     onClose()
   }
   async function save() {
+    const parsedMacros = terminalMacrosSchema.safeParse(macros)
+    if (!parsedMacros.success) {
+      setMacroError(parsedMacros.error.issues[0]?.message ?? 'Проверьте макросы.')
+      document.getElementById('macros-heading')?.scrollIntoView({ block: 'center' })
+      return
+    }
     try {
       await controller.apply()
       onSaved(
@@ -71,6 +81,7 @@ export function Appearance({
           monitoringIntervalSeconds,
           monitoringPlacement,
           monitoringItems,
+          macros: parsedMacros.data,
         }),
       )
       onClose()
@@ -268,6 +279,14 @@ export function Appearance({
             ))}
           </fieldset>
         )}
+        <Macros
+          value={macros}
+          onChange={(value) => {
+            setMacros(value)
+            setMacroError('')
+          }}
+          error={macroError}
+        />
         <DataTransfer />
         <Updates settings={settings} onSaved={onSaved} />
         {error && <p className="error-message">{error}</p>}
