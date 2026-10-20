@@ -189,7 +189,34 @@ export class UpdateService {
     try {
       await this.driver.checkForUpdates()
     } catch (error) {
-      this.failed(error instanceof Error ? error : new Error(String(error)))
+      const failure = error instanceof Error ? error : new Error(String(error))
+      this.failed(failure)
+      // GitHub's web /latest endpoint can return 406 before the first stable release.
+      // Confirm absence through the public API rather than treating 406 as no updates.
+      if (
+        this.value.channel === 'stable' &&
+        (failure as Error & { code?: string }).code === 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND' &&
+        /\b406\b/.test(failure.message)
+      ) {
+        try {
+          const response = await fetch(
+            'https://api.github.com/repos/Termlume/Termlume/releases/latest',
+            {
+              headers: { Accept: 'application/vnd.github+json' },
+              signal: AbortSignal.timeout(10000),
+            },
+          )
+          if (response.status === 404)
+            this.set({
+              state: 'not-available',
+              message: 'Стабильных выпусков пока нет',
+              error: undefined,
+              version: undefined,
+            })
+        } catch {
+          // Keep the original updater error when the independent check also fails.
+        }
+      }
     } finally {
       this.active = undefined
     }

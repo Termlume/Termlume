@@ -174,3 +174,28 @@ it('first public alpha reports no stable release but preserves manifest, auth an
   expect((await service.check()).state).toBe('error')
   service.dispose()
 })
+it('confirms absent stable release through API when GitHub latest endpoint returns 406', async () => {
+  const { driver, service } = setup()
+  const request = vi.fn(async () => ({ status: 404 }))
+  vi.stubGlobal('fetch', request)
+  try {
+    driver.checkForUpdates.mockImplementation(async () => {
+      throw Object.assign(
+        new Error('Unable to find latest version on GitHub: HttpError: 406 Not Acceptable'),
+        {
+          code: 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND',
+        },
+      )
+    })
+    expect(await service.check()).toMatchObject({
+      state: 'not-available',
+      message: 'Стабильных выпусков пока нет',
+    })
+    expect(request).toHaveBeenCalledOnce()
+    request.mockResolvedValue({ status: 403 })
+    expect((await service.check()).state).toBe('error')
+  } finally {
+    vi.unstubAllGlobals()
+    service.dispose()
+  }
+})
