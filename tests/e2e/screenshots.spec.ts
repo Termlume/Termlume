@@ -4,11 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sshFixture } from '../integration/fixtures/ssh-server'
 import { allowClosing } from './helpers'
+import { commands } from '../../src/main/monitoring/commands'
 
 test('capture isolated demonstration workspace', async () => {
   test.skip(process.env.TERMLUME_SCREENSHOTS !== '1', 'Opt-in documentation screenshots')
   const root = await mkdtemp(join(tmpdir(), 'termlume-demo-'))
   const remote = join(root, 'remote')
+  const local = join(process.cwd(), 'test-results', 'readme-demo-files')
+  await mkdir(local, { recursive: true })
+  await writeFile(join(local, 'compose.yml'), 'services:\n  web:\n    image: nginx:stable\n')
+  await writeFile(join(local, 'deploy.sh'), '#!/bin/sh\necho Deploy\n')
   await mkdir(remote)
   await mkdir('docs/images', { recursive: true })
   for (const folder of ['backups', 'config', 'logs', 'projects']) await mkdir(join(remote, folder))
@@ -27,6 +32,13 @@ test('capture isolated demonstration workspace', async () => {
     sftpRoot: remote,
     shellGreeting: greeting,
     execReply(command) {
+      if (command === commands.users)
+        return { stdout: 'demo pts/0 2026-10-20 12:00 (192.0.2.10)\n' }
+      if (command === commands.system)
+        return {
+          stdout:
+            '__TERMINAL_HOST__\nweb-01\n__TERMINAL_PROCESSES__\nS\nR\nS\n__PS_OK__\n__TERMINAL_LOAD__\n0.14 0.18 0.21 1/128 1245\n__TERMINAL_FILES__\n1024 0 1048576\n__TERMINAL_MOUNTS__\n/dev/vda1 / ext4 rw 0 0\n__MOUNTS_OK__\n__TERMINAL_CONNECTIONS__\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:*\n__SS_OK__\n',
+        }
       if (command.startsWith('getent passwd')) return { stdout: 'demo:x:0:0::/home/demo:/bin/bash' }
       if (command.startsWith('getent group')) return { stdout: 'demo:x:0:' }
       if (command === 'uname -s') return { stdout: 'Linux' }
@@ -58,15 +70,33 @@ test('capture isolated demonstration workspace', async () => {
   })
   try {
     const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1920, 1080))
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 900))
     await page.evaluate(async (port) => {
       await window.terminalApi.settings.update({
         themeId: 'catppuccin-mocha',
         sidebarWidth: 240,
         monitorWidth: 260,
-        sftpWidth: 700,
+        sftpWidth: 410,
+        monitoringPlacement: 'under-terminal',
+        monitoringIntervalSeconds: 1,
+        macros: [
+          {
+            id: 'logs',
+            name: 'logs',
+            description: 'Последние записи журнала',
+            command: 'journalctl -n 50 --no-pager',
+          },
+          {
+            id: 'services',
+            name: 'services',
+            description: 'Состояние служб',
+            command: 'systemctl --failed',
+          },
+          { id: 'disk', name: 'disk', description: 'Свободное место на дисках', command: 'df -h' },
+        ],
         sftpMode: 'remote-only',
-        terminalFontSize: 13,
+        terminalFontSize: 16,
+        collapsedHostGroups: ['Development', 'Network'],
       })
       for (const [index, name, host, group] of [
         [0, 'web-01 · demo', '127.0.0.1', 'Production'],
@@ -79,6 +109,12 @@ test('capture isolated demonstration workspace', async () => {
         await window.terminalApi.hosts.save({
           id,
           name,
+          tags:
+            group === 'Production'
+              ? ['prod', index === 2 ? 'database' : 'web']
+              : group === 'Network'
+                ? ['network']
+                : ['dev'],
           host,
           group,
           protocol: 'ssh',
@@ -88,7 +124,23 @@ test('capture isolated demonstration workspace', async () => {
           favorite: index < 2,
           monitoringEnabled: true,
         })
-        if (index === 0) await window.terminalApi.hosts.setSecret(id, 'test-password')
+        if (index === 0) {
+          await window.terminalApi.hosts.setSecret(id, 'test-password')
+          const filesId = '00000000-0000-4000-8000-000000000099'
+          await window.terminalApi.hosts.save({
+            id: filesId,
+            name: 'Deploy files',
+            protocol: 'sftp',
+            host: '127.0.0.1',
+            port,
+            username: 'demo',
+            auth: 'password',
+            group: 'Production',
+            favorite: false,
+            tags: ['files'],
+          })
+          await window.terminalApi.hosts.setSecret(filesId, 'test-password')
+        }
       }
     }, server.port)
     await page.reload()
@@ -100,18 +152,60 @@ test('capture isolated demonstration workspace', async () => {
     await expect(page.getByRole('contentinfo')).toContainText('Подключено')
     await page.getByRole('button', { name: 'Файлы', exact: true }).click()
     await expect(page.getByText('compose.yml', { exact: true })).toBeVisible()
-    await expect(page.locator('.monitoring-content')).toBeVisible()
-    await page.waitForTimeout(6300)
+    await expect(page.getByRole('toolbar', { name: 'Мониторинг web-01 · demo' })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Пользователи: demo', exact: true }),
+    ).toBeVisible()
+    await page.waitForTimeout(2300)
+    const assertPrivacy = async () => {
+      const visible = await page.evaluate(
+        () =>
+          document.body.innerText +
+          '\n' +
+          [...document.querySelectorAll('input')].map((input) => input.value).join('\n'),
+      )
+      for (const value of [process.env.USERNAME, process.env.USERPROFILE])
+        if (value) expect(visible.toLowerCase()).not.toContain(value.toLowerCase())
+    }
+    await assertPrivacy()
     await page.screenshot({ path: 'docs/images/overview-dark.png' })
     await page.getByRole('button', { name: 'Настройки', exact: true }).click()
     await page.getByRole('button', { name: 'VS Code Light Modern', exact: true }).click()
     await page.getByRole('button', { name: 'Применить', exact: true }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
+    await assertPrivacy()
     await page.screenshot({ path: 'docs/images/overview-light.png' })
+    await page.getByRole('button', { name: 'Настройки', exact: true }).click()
+    await page.getByRole('button', { name: 'Catppuccin Mocha', exact: true }).click()
+    await page.getByRole('button', { name: 'Применить', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Файлы', exact: true }).click()
+    await page.locator('.terminal-pane.active .xterm-helper-textarea').focus()
+    await page.keyboard.type('/')
+    await expect(page.getByRole('listbox', { name: 'Доступные макросы' })).toBeVisible()
+    await assertPrivacy()
+    await page.locator('.terminal-macros').screenshot({ path: 'docs/images/macros.png' })
+    await page.keyboard.press('Escape')
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [directory],
+      })) as typeof dialog.showOpenDialog
+    }, local)
+    await page.getByRole('button', { name: 'Подключиться: Deploy files', exact: true }).click()
+    const files = page.getByRole('region', { name: 'Файловый клиент: Deploy files' })
+    await expect(files.getByText('compose.yml', { exact: true })).toBeVisible()
+    await files.getByTitle('Выбрать локальную папку', { exact: true }).click()
+    await expect(
+      files.locator('.file-side').first().getByText('deploy.sh', { exact: true }),
+    ).toBeVisible()
+    await assertPrivacy()
+    await page.screenshot({ path: 'docs/images/file-client.png' })
   } finally {
     await allowClosing(app)
     await app.close()
     await server.close()
     await rm(root, { recursive: true, force: true })
+    await rm(local, { recursive: true, force: true })
   }
 })
