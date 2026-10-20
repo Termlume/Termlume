@@ -1,0 +1,41 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: node scripts/validate-release.cjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: npm run test:package
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $release = Get-Content latest-release.json -Raw | ConvertFrom-Json
+          $folder = Split-Path $release.installer
+          $assets = Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -match '\.(exe|blockmap|yml)$' -or $_.Name -eq 'SHA256SUMS.txt' } | ForEach-Object { $_.FullName }
+          $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $env:RELEASE_TAG", '--generate-notes', '--verify-tag')
+          if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' }
+          & gh @options @assets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

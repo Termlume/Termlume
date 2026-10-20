@@ -1,0 +1,15 @@
+node_modules/
+out/
+dist*/
+coverage/
+test-results/
+playwright-report/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+latest-release.json
+electron-builder.release.local.yml
+native/windows-drag/bin/

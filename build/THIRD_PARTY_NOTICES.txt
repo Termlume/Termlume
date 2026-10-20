@@ -1,0 +1,9 @@
+Terminal uses open-source components. License files accompany packaged dependencies.
+
+Theme adaptations:
+Catppuccin contributors — MIT — https://github.com/catppuccin/palette
+VS Code — Microsoft Corporation — MIT — https://github.com/microsoft/vscode
+Tokyo Night — enkia and contributors — MIT — https://github.com/tokyo-night/tokyo-night-vscode-theme
+One Dark — GitHub Inc. and contributors — MIT — https://github.com/atom/one-dark-syntax
+Lucide icons — Lucide contributors — ISC — https://lucide.dev/license
+Fonts are provided locally by Windows.

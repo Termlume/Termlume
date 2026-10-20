@@ -1,0 +1,21 @@
+name: Ошибка
+description: Сообщить о проблеме в Termlume
+title: '[Bug] '
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Версия Termlume и Windows
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Что произошло и как повторить
+      description: Не прикладывайте пароли, ключи или реальные адреса серверов.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
