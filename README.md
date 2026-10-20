@@ -9,6 +9,9 @@
   <p><b>0.1 Alpha</b> · Windows 10/11 · Интерфейс на русском языке</p>
 </div>
 
+[![CI](https://github.com/Termlume/Termlume/actions/workflows/ci.yml/badge.svg)](https://github.com/Termlume/Termlume/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Termlume/Termlume?include_prereleases&label=release)](https://github.com/Termlume/Termlume/releases)
+
 ![Termlume: терминал, файлы и мониторинг](docs/images/overview-dark.png)
 
 ### Что умеет
