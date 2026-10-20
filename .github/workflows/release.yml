@@ -47,7 +47,11 @@ jobs:
         run: |
           $release = Get-Content latest-release.json -Raw | ConvertFrom-Json
           $folder = Split-Path $release.installer
-          $assets = Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -match '\.(exe|blockmap|yml)$' -or $_.Name -eq 'SHA256SUMS.txt' } | ForEach-Object { $_.FullName }
+          $assets = Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -match '\.(exe|blockmap)$' -or $_.Name -in @('latest.yml', 'alpha.yml', 'beta.yml') } | ForEach-Object { $_.FullName }
+          $sums = $assets | ForEach-Object { $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant(); "$hash  $(Split-Path $_ -Leaf)" }
+          $checksums = Join-Path $folder 'SHA256SUMS.txt'
+          $sums | Set-Content -LiteralPath $checksums -Encoding utf8NoBOM
+          $assets += $checksums
           $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $env:RELEASE_TAG", '--generate-notes', '--verify-tag')
           if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' }
           & gh @options @assets

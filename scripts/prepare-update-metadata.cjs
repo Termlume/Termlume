@@ -18,7 +18,7 @@ module.exports = function prepareUpdateMetadata(folder, version) {
     fs.writeFileSync(path.join(folder, name), content)
   const artifacts = fs
     .readdirSync(folder)
-    .filter((name) => /\.(exe|blockmap|yml)$/.test(name))
+    .filter((name) => /\.(exe|blockmap)$/.test(name) || /^(latest|alpha|beta)\.yml$/.test(name))
     .sort()
   const sums = artifacts.map(
     (name) =>
