@@ -120,6 +120,25 @@ export class RemoteFileAccess {
       ? this.scp.realpath(id, path)
       : this.sftp.realpath(id, path)
   }
+  async move(id: string, source: string, directory: string): Promise<void> {
+    if (this.ftp?.matches(id)) return this.ftp.provider.move(id, source, directory)
+    if ((await this.mode(id)) !== 'sftp')
+      throw new AppError('files-unsupported', 'Перемещение внутри сервера требует SFTP; подключитесь по SFTP')
+    const stat = await this.sftp.lstat(id, source)
+    const targetStat = await this.sftp.lstat(id, directory)
+    if (stat.isSymbolicLink() || targetStat.isSymbolicLink() || !targetStat.isDirectory())
+      throw new AppError('unsafe-link', 'Перемещать можно только обычные файлы и папки без символических ссылок')
+    const canonicalSource = await this.sftp.realpath(id, source)
+    const canonicalDirectory = await this.sftp.realpath(id, directory)
+    if (
+      canonicalSource === '/' ||
+      (stat.isDirectory() &&
+        (canonicalDirectory === canonicalSource ||
+          canonicalDirectory.startsWith(canonicalSource + '/')))
+    )
+      throw new AppError('move-descendant', 'Нельзя переместить папку в неё саму или её подпапку')
+    await this.sftp.rename(id, source, posix.join(canonicalDirectory, posix.basename(source)))
+  }
   async mutate(request: FileMutation): Promise<void> {
     const id = request.sessionId
     if (id && this.ftp?.matches(id)) return this.ftp.provider.mutate(request)

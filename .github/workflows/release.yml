@@ -56,7 +56,18 @@ jobs:
           $checksums = Join-Path $folder 'SHA256SUMS.txt'
           $sums | Set-Content -LiteralPath $checksums -Encoding utf8NoBOM
           $assets += $checksums
-          $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $env:RELEASE_TAG", '--generate-notes', '--verify-tag')
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $lines = @(Get-Content CHANGELOG.md -Encoding utf8)
+          $start = [Array]::IndexOf($lines, "## $version")
+          if ($start -lt 0) { throw "CHANGELOG.md has no notes for $version" }
+          $notes = [System.Collections.Generic.List[string]]::new()
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].StartsWith('## ')) { break }
+            $notes.Add($lines[$i])
+          }
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          ($notes -join "`n").Trim() | Set-Content -LiteralPath $notesFile -Encoding utf8NoBOM
+          $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $env:RELEASE_TAG", '--notes-file', $notesFile, '--verify-tag')
           if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' }
           & gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {

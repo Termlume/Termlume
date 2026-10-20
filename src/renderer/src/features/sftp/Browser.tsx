@@ -73,6 +73,7 @@ export function SftpBrowser({
   }, [active])
   const [activities, setActivities] = useState<Record<string, FileActivity>>({})
   const pendingOpens = useRef(new Set<string>())
+  const dragOwner = useRef(crypto.randomUUID())
   const activeSession = useRef(sessionId)
   activeSession.current = sessionId
   const remotePaths = useRef(new Map<string, string>())
@@ -523,6 +524,26 @@ export function SftpBrowser({
                     void openEntry(side, entry)
                   }}
                   onParent={() => parent(side)}
+                  dragOwner={dragOwner.current + ':' + side + ':' + (sessionId || '')}
+                  onMove={
+                    side === 'local' || remoteCapabilities?.rename
+                      ? (source, directory) => {
+                          if (!directory || source === directory.name) return
+                          void window.terminalApi.files
+                            .move({
+                              side,
+                              sessionId: side === 'remote' ? sessionId : undefined,
+                              path: path(side, source),
+                              destination: path(side, directory.name),
+                            })
+                            .then(() => {
+                              setRevision((value) => value + 1)
+                              setTransferError('')
+                            })
+                            .catch((error) => setTransferError(String(error)))
+                        }
+                      : undefined
+                  }
                   onBeginExternalDrag={
                     side === 'remote' && sessionId && remoteCapabilities?.dragOut
                       ? (entry) => {

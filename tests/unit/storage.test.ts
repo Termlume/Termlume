@@ -67,3 +67,22 @@ it('settingsUpdatesValidateAndPersistInteractionPreferences', async () => {
   expect(await settings.get()).toEqual(updated)
   expect(() => settingsSchema.parse({ sftpMode: 'other' })).toThrow()
 })
+it('moves legacy stable settings to prerelease once and preserves a later stable choice', async () => {
+  const file = await fixture()
+  await writeFile(
+    file,
+    JSON.stringify({ schemaVersion: 1, data: { updateChannel: 'stable', terminalFontSize: 19 } }),
+  )
+  const repository = new SettingsRepository(file)
+  expect(await repository.get()).toMatchObject({
+    updateChannel: 'prerelease',
+    updateChannelPolicy: 1,
+    terminalFontSize: 19,
+  })
+  await repository.update({ updateChannel: 'stable' })
+  expect(await new SettingsRepository(file).get()).toMatchObject({
+    updateChannel: 'stable',
+    updateChannelPolicy: 1,
+    terminalFontSize: 19,
+  })
+})

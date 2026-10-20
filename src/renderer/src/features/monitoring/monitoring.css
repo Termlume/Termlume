@@ -6,16 +6,35 @@
 }
 .monitoring-bar {
   display: flex;
+  flex: 0 0 44px;
   align-items: center;
   gap: 4px;
   width: 100%;
   min-width: 0;
+  height: 44px;
   padding: 3px 8px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  /* Reserve the native scroll track even before metrics overflow. This keeps
+     the terminal's available height unchanged when the window is resized. */
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
   background: transparent;
   color: var(--text);
   font-size: 11px;
+}
+.monitoring-bar::-webkit-scrollbar {
+  height: 8px;
+}
+.monitoring-bar::-webkit-scrollbar-track {
+  background: var(--panel);
+}
+.monitoring-bar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid var(--panel);
+  border-radius: 4px;
+}
+.monitoring-bar::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 .monitoring-item {
   flex: 0 0 auto;

@@ -589,3 +589,50 @@ it('hidesAndRestoresQueueAndOpensCompletedDownloads', async () => {
   expect(screen.queryByText(/report.txt/)).toBeNull()
   expect(screen.getByText(/active.bin/)).toBeTruthy()
 })
+
+it('moves an internal remote drag into the target folder without starting native OLE', async () => {
+  const move = vi.fn(async () => {}),
+    beginExternalDrag = vi.fn(async () => true)
+  Object.defineProperty(window, 'terminalApi', {
+    configurable: true,
+    value: {
+      files: {
+        localRoot: async () => 'C:\\Users\\tester',
+        move,
+        beginExternalDrag,
+        list: async () => ({
+          path: '/srv',
+          mode: 'sftp',
+          capabilities: { rename: true, dragOut: true },
+          entries: [
+            { name: 'source', type: 'file', size: 1, modifiedAt: 1, isSymlink: false },
+            { name: 'target', type: 'directory', size: 0, modifiedAt: 1, isSymlink: false },
+          ],
+        }),
+      },
+    },
+  })
+  render(<SftpBrowser sessionId="session-owner" />)
+  const source = (await screen.findByText('source')).closest('tr')!
+  const target = screen.getByText('target').closest('tr')!
+  const payload: Record<string, string> = {}
+  const dataTransfer = {
+    types: ['application/x-termlume-file'],
+    effectAllowed: '',
+    setData: (type: string, data: string) => {
+      payload[type] = data
+    },
+    getData: (type: string) => payload[type],
+  }
+  fireEvent.dragStart(source, { dataTransfer })
+  fireEvent.drop(target, { dataTransfer })
+  await waitFor(() =>
+    expect(move).toHaveBeenCalledWith({
+      side: 'remote',
+      sessionId: 'session-owner',
+      path: '/srv/source',
+      destination: '/srv/target',
+    }),
+  )
+  expect(beginExternalDrag).not.toHaveBeenCalled()
+})

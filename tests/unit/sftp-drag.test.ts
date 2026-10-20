@@ -39,7 +39,7 @@ it('queuesOneOrMoreExplorerFilesDroppedOntoTheRemoteDirectory', async () => {
   )
 })
 
-it('startsNativeDragOnFirstGestureWithoutPreparation', async () => {
+it('startsNativeDragOnlyAfterLeavingTheWindowWithoutPreparation', async () => {
   const stageDrag = vi.fn(async () => ({ token: 'one-use', fileName: 'remote.txt' })),
     beginExternalDrag = vi.fn(async () => true)
   Object.defineProperty(window, 'terminalApi', {
@@ -79,7 +79,9 @@ it('startsNativeDragOnFirstGestureWithoutPreparation', async () => {
   expect(stageDrag).not.toHaveBeenCalled()
   expect(beginExternalDrag).not.toHaveBeenCalled()
   expect(screen.queryByRole('button', { name: /Подготовить/ })).toBeNull()
-  fireEvent.dragStart(row)
+  fireEvent.dragStart(row, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
+  expect(beginExternalDrag).not.toHaveBeenCalled()
+  fireEvent(document, new MouseEvent('dragleave', { clientX: -1, clientY: 25 }))
   await waitFor(() =>
     expect(beginExternalDrag).toHaveBeenCalledWith({
       sessionId: 'session-id',

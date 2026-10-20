@@ -2,7 +2,7 @@ import { basename, dirname, join, posix, win32 } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import * as fs from 'node:fs/promises'
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell, screen } from 'electron'
 import { LocalFilesService } from './sftp/LocalFilesService'
 import { SftpService } from './sftp/SftpService'
 import { ScpService } from './sftp/ScpService'
@@ -414,7 +414,12 @@ export class Backend {
       if (!(await fs.lstat(source)).isFile())
         throw new AppError('regular-file-only', 'Переносить можно только обычные файлы')
     }
-    const handle = BrowserWindow.fromWebContents(sender)?.getNativeWindowHandle()
+    const source = BrowserWindow.fromWebContents(sender)
+    if (!source || source.isDestroyed()) return false
+    const bounds = source.getBounds(), cursor = screen.getCursorScreenPoint()
+    if (cursor.x >= bounds.x && cursor.y >= bounds.y && cursor.x < bounds.x + bounds.width && cursor.y < bounds.y + bounds.height)
+      return false
+    const handle = source.getNativeWindowHandle()
     const sourceWindow =
       handle?.length === 8
         ? handle.readBigUInt64LE().toString(16)
@@ -627,6 +632,14 @@ export class Backend {
           }
         }
         return this.remoteFiles.list(request.sessionId, request.path)
+      }
+      case 'files.move': {
+        if (request.side === 'local') return this.localFiles.move(request.path, request.destination)
+        if (!request.sessionId) throw new AppError('files-session-required', 'Выберите подключение')
+        const profile = this.requireFileSession(request.sessionId)
+        if (profile.protocol === 'wsl') return new LocalFilesService(await wslRoot(profile.distribution)).move(request.path, request.destination)
+        if (profile.protocol === 'local') return this.localFiles.move(request.path, request.destination)
+        return this.remoteFiles.move(request.sessionId, request.path, request.destination)
       }
       case 'files.mutate': {
         if (request.operation === 'mkdir' || request.operation === 'rename')

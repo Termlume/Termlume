@@ -34,6 +34,7 @@ applyTheme('catppuccin-mocha')
 export default function App() {
   const [settings, setSettings] = useState<Settings>(),
     [appearance, setAppearance] = useState(false),
+    [updateDialogOpen, setUpdateDialogOpen] = useState(false),
     [files, setFiles] = useState(false),
     [monitor, setMonitor] = useState(false),
     [localFilesVisible, setLocalFilesVisible] = useState<boolean>(),
@@ -113,6 +114,7 @@ export default function App() {
         hasActiveTab: Boolean(sessions.active),
         tabCount: sessions.tabs.length,
         modalOpen:
+          updateDialogOpen ||
           commandsOpen ||
           quick ||
           shortcutsOpen ||
@@ -200,6 +202,7 @@ export default function App() {
             defaultLocalShell={settings?.localShell}
           />
         }
+        updateIndicator={settings && <UpdateNotice settings={settings} onSaved={setSettings} onOpenChange={setUpdateDialogOpen} />}
         footer={
           activeTab && (
             <span>
@@ -277,7 +280,6 @@ export default function App() {
         onMonitor={() => setMonitor(!monitor)}
         onHelp={() => setShortcutsOpen(true)}
       >
-        <UpdateNotice />
         <div
           className="main-area"
           style={{ '--compact-dock-width': `${fileWidth}px` } as CSSProperties}

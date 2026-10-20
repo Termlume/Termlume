@@ -1377,6 +1377,8 @@ form > label {
 .split-session-terminal > .terminal-pane,
 .split-session-terminal > .terminal-pane.active {
   display: block;
+}
+.split-session-terminal > .terminal-pane > .xterm {
   padding: 7px;
 }
 .permission-editor {
@@ -1419,7 +1421,6 @@ form > label {
 .terminal-pane {
   position: absolute;
   inset: 0;
-  padding: 16px 9px 8px 18px;
   display: none;
   background: var(--bg);
 }
@@ -1428,6 +1429,8 @@ form > label {
 }
 .terminal-pane .xterm {
   height: 100%;
+  /* FitAddon subtracts padding on .xterm, not on its parent container. */
+  padding: 16px 9px 8px 18px;
 }
 .terminal-pane .xterm-viewport {
   background: transparent !important;

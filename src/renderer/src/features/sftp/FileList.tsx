@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Folder, File, Link, CornerLeftUp } from 'lucide-react'
 import type { FileEntry, FileActivity } from '../../../../shared/contracts'
 export function FileList({
@@ -8,6 +8,8 @@ export function FileList({
   onOpen,
   onParent,
   onBeginExternalDrag,
+  dragOwner,
+  onMove,
   showPermissions = true,
   activities,
   onContextMenu,
@@ -18,10 +20,62 @@ export function FileList({
   onOpen: (entry: FileEntry) => void
   onParent: () => void
   onBeginExternalDrag?: (entry: FileEntry) => boolean | Promise<boolean>
+  dragOwner?: string
+  onMove?: (source: string, directory?: FileEntry) => void
   showPermissions?: boolean
   activities?: ReadonlyMap<string, FileActivity | undefined>
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void
 }) {
+  const dragging = useRef<FileEntry | undefined>(undefined)
+  useEffect(() => {
+    const leave = (event: DragEvent) => {
+      const entry = dragging.current
+      if (!entry || !onBeginExternalDrag || entry.type !== 'file' || event.relatedTarget != null)
+        return
+      if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
+      // Keep the entire in-window gesture in Chromium. Native OLE is only for drag-out.
+      if (
+        event.clientX > 0 &&
+        event.clientY > 0 &&
+        event.clientX < window.innerWidth &&
+        event.clientY < window.innerHeight
+      )
+        return
+      dragging.current = undefined
+      void onBeginExternalDrag(entry)
+    }
+    const stop = () => {
+      dragging.current = undefined
+    }
+    document.addEventListener('dragleave', leave)
+    document.addEventListener('dragend', stop)
+    document.addEventListener('drop', stop)
+    return () => {
+      document.removeEventListener('dragleave', leave)
+      document.removeEventListener('dragend', stop)
+      document.removeEventListener('drop', stop)
+    }
+  }, [onBeginExternalDrag])
+  function accepts(event: React.DragEvent) {
+    return !!onMove && Array.from(event.dataTransfer.types).includes('application/x-termlume-file')
+  }
+  function drop(event: React.DragEvent, directory?: FileEntry) {
+    if (!accepts(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    dragging.current = undefined
+    try {
+      const payload = JSON.parse(event.dataTransfer.getData('application/x-termlume-file'))
+      if (
+        payload.owner === dragOwner &&
+        typeof payload.name === 'string' &&
+        entries.some((entry) => entry.name === payload.name && !entry.isSymlink)
+      )
+        onMove?.(payload.name, directory)
+    } catch {
+      /* Ignore unrelated or malformed drag data. */
+    }
+  }
   type Column = 'name' | 'size' | 'modifiedAt' | 'permissions' | 'owner' | 'group'
   const columns: { key: Column; label: string; min: number }[] = [
     { key: 'name', label: 'Имя', min: 120 },
@@ -158,10 +212,32 @@ export function FileList({
                 (selected.includes(entry.name) ? 'selected ' : '') +
                 (activities?.get(entry.name) ? 'file-working' : '')
               }
-              draggable={!!onBeginExternalDrag && entry.type === 'file' && !entry.isSymlink}
+              draggable={
+                !!dragOwner &&
+                !entry.isSymlink &&
+                (entry.type === 'file' || entry.type === 'directory')
+              }
               onDragStart={(event) => {
-                event.preventDefault()
-                if (entry.type === 'file' && !entry.isSymlink) onBeginExternalDrag?.(entry)
+                if (!dragOwner || entry.isSymlink) {
+                  event.preventDefault()
+                  return
+                }
+                dragging.current = entry
+                event.dataTransfer.effectAllowed = 'copyMove'
+                event.dataTransfer.setData(
+                  'application/x-termlume-file',
+                  JSON.stringify({ owner: dragOwner, name: entry.name }),
+                )
+              }}
+              onDragOver={(event) => {
+                if (entry.type === 'directory' && !entry.isSymlink && accepts(event)) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.dataTransfer.dropEffect = 'move'
+                }
+              }}
+              onDrop={(event) => {
+                if (entry.type === 'directory' && !entry.isSymlink) drop(event, entry)
               }}
               onClick={(event) => onSelect(entry.name, event.ctrlKey || event.metaKey)}
               onDoubleClick={() => onOpen(entry)}

@@ -56,7 +56,7 @@ it('stable excludes all prereleases even from alpha; opt-in accepts stable witho
   expect((await service.check()).state).toBe('available')
   expect(service.status().version).toBe('0.2.0')
   expect(settingsPatchSchema.parse({})).toEqual({})
-  expect(settingsSchema.parse({}).updateChannel).toBe('stable')
+  expect(settingsSchema.parse({}).updateChannel).toBe('prerelease')
   service.dispose()
 })
 it('locks channel while checking and prevents stale progress after channel switch', async () => {
@@ -227,5 +227,63 @@ it('handles the real GitHubProvider wrapper around the missing stable endpoint',
   } finally {
     vi.unstubAllGlobals()
     service.dispose()
+  }
+})
+it('checks after startup and each hour, and stops checking after disposal', async () => {
+  vi.useFakeTimers()
+  const { driver, service } = setup('prerelease')
+  driver.checkForUpdates.mockImplementation(async () => {
+    driver.emit('update-available', { version: '0.2.0-alpha.2' })
+    return null
+  })
+  try {
+    service.scheduleChecks()
+    service.scheduleChecks()
+    await vi.advanceTimersByTimeAsync(9999)
+    expect(service.status().state).toBe('idle')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(service.status()).toMatchObject({ state: 'available', version: '0.2.0-alpha.2' })
+    driver.checkForUpdates.mockImplementation(async () => {
+      driver.emit('update-available', { version: '0.2.0-alpha.3' })
+      return null
+    })
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000 - 10000)
+    expect(service.status().version).toBe('0.2.0-alpha.3')
+    expect(driver.checkForUpdates).toHaveBeenCalledTimes(2)
+    service.dispose()
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(driver.checkForUpdates).toHaveBeenCalledTimes(2)
+  } finally {
+    service.dispose()
+    vi.useRealTimers()
+  }
+})
+
+it('keeps a downloaded update ready through scheduled and manual checks', async () => {
+  vi.useFakeTimers()
+  const { driver, service } = setup('prerelease')
+  driver.checkForUpdates.mockImplementation(async () => {
+    driver.emit('update-available', { version: '0.2.0-alpha.2', releaseNotes: 'Fixes' })
+    return null
+  })
+  driver.downloadUpdate.mockImplementation(async () => {
+    driver.emit('update-downloaded', { version: '0.2.0-alpha.2', releaseNotes: 'Fixes' })
+    return []
+  })
+  try {
+    service.scheduleChecks()
+    await vi.advanceTimersByTimeAsync(10000)
+    await service.download()
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(await service.check()).toMatchObject({
+      state: 'downloaded',
+      version: '0.2.0-alpha.2',
+      releaseNotes: 'Fixes',
+    })
+    expect(driver.checkForUpdates).toHaveBeenCalledOnce()
+    expect(driver.downloadUpdate).toHaveBeenCalledOnce()
+  } finally {
+    service.dispose()
+    vi.useRealTimers()
   }
 })

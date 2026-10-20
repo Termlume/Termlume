@@ -13,6 +13,7 @@ test('tags, bottom monitoring and a standalone SFTP tab work together', async ()
   const remote = join(root, 'remote'),
     local = join(root, 'local')
   await mkdir(remote)
+  await mkdir(join(remote, 'archive'))
   await mkdir(local)
   await writeFile(join(remote, 'server.txt'), 'server demo')
   await writeFile(join(local, 'upload.txt'), 'local demo')
@@ -94,6 +95,32 @@ test('tags, bottom monitoring and a standalone SFTP tab work together', async ()
     const users = bar.getByRole('button', { name: 'Пользователи: demo', exact: true })
     await expect(users).toBeVisible()
     await expect(page.locator('.aux-panel')).toHaveCount(0)
+    // Resizing across the overflow threshold must not move the metric row into
+    // the terminal, clip its final screen row, or change the reserved bar height.
+    let monitoringHeight: number | undefined
+    for (const width of [1280, 800, 1050, 1280]) {
+      await page.setViewportSize({ width, height: 720 })
+      await expect.poll(async () => page.evaluate(() => {
+        const terminal = document.querySelector('.terminal-pane.active')!
+        const monitor = document.querySelector('.monitor-under-terminal')!
+        const footer = document.querySelector('footer')!
+        const screen = terminal.querySelector('.xterm-screen')!
+        const rect = (element: Element) => element.getBoundingClientRect()
+        const fits = rect(screen).bottom <= rect(terminal).bottom + 1 &&
+          rect(screen).right <= rect(terminal).right + 1 &&
+          rect(terminal).bottom <= rect(monitor).top + 1 &&
+          rect(monitor).bottom <= rect(footer).top + 1
+        return fits ? 'fits' : JSON.stringify({ screen: rect(screen), terminal: rect(terminal), monitor: rect(monitor), footer: rect(footer) })
+      })).toBe('fits')
+      const dimensions = await bar.evaluate((element) => ({
+        height: element.getBoundingClientRect().height,
+        clientHeight: element.clientHeight,
+        itemHeight: element.querySelector('.monitoring-item')!.getBoundingClientRect().height,
+      }))
+      monitoringHeight ??= dimensions.height
+      expect(dimensions.height).toBe(monitoringHeight)
+      expect(dimensions.clientHeight).toBeGreaterThanOrEqual(dimensions.itemHeight + 6)
+    }
     await users.hover()
     await expect(
       page.getByRole('tooltip').getByRole('cell', { name: 'demo', exact: true }),
@@ -141,6 +168,11 @@ test('tags, bottom monitoring and a standalone SFTP tab work together', async ()
     await expect
       .poll(async () => readFile(join(local, 'server.txt'), 'utf8').catch(() => ''))
       .toBe('server demo')
+    const remotePane = workspace.locator('.file-side').nth(1)
+    await remotePane.getByText('server.txt', { exact: true }).locator('xpath=ancestor::tr').dragTo(remotePane.getByText('archive', { exact: true }).locator('xpath=ancestor::tr'))
+    await expect.poll(async () => readFile(join(remote, 'archive', 'server.txt'), 'utf8').catch(() => '')).toBe('server demo')
+    await expect(remotePane.getByText('server.txt', { exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => document.title)).toBe('Termlume')
     await workspace.getByText('folder', { exact: true }).click()
     await workspace.getByRole('button', { name: 'Загрузить', exact: true }).click()
     await expect

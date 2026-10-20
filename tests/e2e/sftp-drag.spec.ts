@@ -115,7 +115,7 @@ test('remote file is immediately draggable without hover downloads or preparatio
   }
 })
 
-test('native OLE drops real SSH bytes onto desktop and Explorer without preparation', async () => {
+test('FileList HTML drag transitions to native OLE and drops real SSH bytes onto desktop and Explorer', async () => {
   test.skip(
     process.platform !== 'win32' || process.env.TERMLUME_NATIVE_UI_TESTS !== '1',
     'Requires the interactive Windows desktop',
@@ -154,16 +154,19 @@ test('native OLE drops real SSH bytes onto desktop and Explorer without preparat
     await page.getByRole('button', { name: 'Подключиться: Desktop drop' }).click()
     await page.getByRole('button', { name: 'Доверять и подключиться' }).click()
     await expect(page.getByRole('contentinfo')).toContainText('Подключено · SSH')
-    const sessionId = (await page.locator('.terminal-pane.active').getAttribute('data-session-id'))!
-    const listing = await page.evaluate(
-      (id) => window.terminalApi.files.list({ side: 'remote', sessionId: id, path: '.' }),
-      sessionId,
-    )
-    const source = listing.path.replace(/\/$/, '') + '/' + name
+    await page.getByRole('button', { name: 'Файлы', exact: true }).click()
+    const row = page.getByText(name, { exact: true }).locator('xpath=ancestor::tr')
+    await expect(row).toHaveAttribute('draggable', 'true')
+    await page.evaluate(() => {
+      const state = { started: 0, ended: 0 }
+      Object.assign(window, { dragGestureState: state })
+      document.addEventListener('dragstart', () => state.started++)
+      document.addEventListener('dragend', () => state.ended++)
+    })
     const sourceWindow = await app.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows()[0]
       window.unmaximize()
-      window.setBounds({ x: 20, y: 20, width: 700, height: 500 })
+      window.setBounds({ x: 20, y: 20, width: 1000, height: 700 })
       return window.getNativeWindowHandle().readBigUInt64LE().toString(16)
     })
     const explorerDirectory = join(data, 'explorer-target')
@@ -194,15 +197,38 @@ test('native OLE drops real SSH bytes onto desktop and Explorer without preparat
       const directory = (await wait('desktop-ready')).directory!
       const target = join(directory, name)
       targets.push(target)
-      driver.stdin!.write('down\n')
-      await wait('pressed')
-      const completed = page.evaluate(
-        (request) => window.terminalApi.files.beginExternalDrag(request),
-        { sessionId, path: source, size: bytes.length, modifiedAt: Date.now() },
+      const rect = await row.boundingBox()
+      if (!rect) throw new Error('Remote file row is not visible')
+      const origin = await app.evaluate(({ BrowserWindow, screen }) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        const bounds = window.getContentBounds()
+        const scale = screen.getDisplayMatching(bounds).scaleFactor
+        return { x: bounds.x, y: bounds.y, scale }
+      })
+      const startedBefore = await page.evaluate(
+        () =>
+          (window as unknown as { dragGestureState: { started: number } }).dragGestureState.started,
       )
+      driver.stdin!.write(
+        `down-at|${Math.round((origin.x + rect.x + 55) * origin.scale)}|${Math.round((origin.y + rect.y + rect.height / 2) * origin.scale)}\n`,
+      )
+      await wait('pressed')
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { dragGestureState: { started: number } }).dragGestureState
+                .started,
+          ),
+        )
+        .toBe(startedBefore + 1)
+      await expect(page.locator('.transfer-row')).toHaveCount(0)
+      driver.stdin!.write('outside\n')
+      await wait('outside')
+      driver.stdin!.write('waitoutside\n')
+      await wait('tracking')
       driver.stdin!.write('release\n')
       await wait('released')
-      expect(await completed).toBe(true)
       await expect
         .poll(async () => {
           try {
@@ -218,7 +244,7 @@ test('native OLE drops real SSH bytes onto desktop and Explorer without preparat
     }
   } finally {
     if (driver) {
-      driver.stdin?.write('close\n')
+      driver.stdin?.write('cancel\nclose\n')
       await Promise.race([
         new Promise<void>((done) => driver!.once('exit', () => done())),
         delay(2000),

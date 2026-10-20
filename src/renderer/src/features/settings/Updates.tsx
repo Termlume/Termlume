@@ -11,7 +11,7 @@ export function Updates({
   onSaved: (settings: Settings) => void
 }) {
   const [status, setStatus] = useState<UpdateStatus>()
-  const [channel, setChannel] = useState(settings.updateChannel ?? 'stable')
+  const [channel, setChannel] = useState(settings.updateChannel ?? 'prerelease')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const mounted = useRef(true)
@@ -41,7 +41,7 @@ export function Updates({
       unsubscribe()
     }
   }, [])
-  useEffect(() => setChannel(settings.updateChannel ?? 'stable'), [settings.updateChannel])
+  useEffect(() => setChannel(settings.updateChannel ?? 'prerelease'), [settings.updateChannel])
   const busy =
     pending ||
     status?.state === 'checking' ||
@@ -127,6 +127,7 @@ export function Updates({
           <option value="prerelease">Предварительные версии</option>
         </select>
       </label>
+      <p className="muted small">Проверяем обновления автоматически каждый час.</p>
       <p role="status">
         {!window.terminalApi.updates ? 'В этой сборке проверка обновлений недоступна.' : stateLabel}
       </p>

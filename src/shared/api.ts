@@ -14,6 +14,7 @@ import type {
   FileDragRequest,
   FileOpenMode,
   FileMutation,
+  FileMove,
   TransferRequest,
   TransferSnapshot,
   MetricSnapshot,
@@ -54,6 +55,7 @@ export interface TerminalApi {
     chooseUpload(): Promise<string[]>
     list(location: FileLocation): Promise<FileListing>
     mutate(request: FileMutation): Promise<void>
+    move(request: FileMove): Promise<void>
     enqueue(request: TransferRequest): Promise<string>
     cancel(id: string): Promise<void>
     retry(

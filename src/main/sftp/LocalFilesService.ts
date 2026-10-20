@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises'
-import { join, dirname, basename, isAbsolute } from 'node:path'
+import { join, dirname, basename, isAbsolute, relative, sep } from 'node:path'
 import type { FileEntry, FileListing } from '../../shared/contracts'
 import { AppError } from '../../shared/errors'
 import { ensureLocalPath, validateFileName } from './local-paths'
@@ -67,6 +67,30 @@ export class LocalFilesService {
   private async entryPath(path: string) {
     const parent = await ensureLocalPath(this.root, dirname(path))
     return join(parent, validateFileName(basename(path)))
+  }
+  async move(path: string, directory: string) {
+    const source = await this.entryPath(path)
+    const stat = await fs.lstat(source)
+    const destinationDirectory = await ensureLocalPath(this.root, directory)
+    if (!(await fs.stat(destinationDirectory)).isDirectory() || stat.isSymbolicLink())
+      throw new AppError('unsafe-link', 'Перемещать можно только обычные файлы и папки без символических ссылок')
+    const canonicalSource = await fs.realpath(source)
+    if (canonicalSource === (await fs.realpath(this.root)))
+      throw new AppError('root-operation', 'Нельзя переместить корневую папку')
+    const child = relative(canonicalSource, destinationDirectory)
+    if (
+      stat.isDirectory() &&
+      (child === '' || (!child.startsWith('..' + sep) && child !== '..' && !isAbsolute(child)))
+    )
+      throw new AppError('move-descendant', 'Нельзя переместить папку в неё саму или её подпапку')
+    const destination = join(destinationDirectory, basename(source))
+    try {
+      await fs.lstat(destination)
+      throw new AppError('exists', 'В папке назначения уже есть файл или папка с таким именем')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    await fs.rename(source, destination)
   }
   async rename(path: string, name: string) {
     const target = await this.entryPath(path)

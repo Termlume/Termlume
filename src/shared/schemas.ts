@@ -91,6 +91,8 @@ export const shortcutBindingsSchema = z
     if (message) context.addIssue({ code: 'custom', message })
   })
 export const settingsSchema = z.object({
+  dismissedUpdateVersion: z.string().max(100).optional(),
+  updateChannelPolicy: z.literal(1).optional(),
   monitoringItems: z
     .array(z.enum(MONITOR_ITEMS))
     .max(MONITOR_ITEMS.length)
@@ -98,7 +100,7 @@ export const settingsSchema = z.object({
   connectionsCollapsed: z.boolean().default(false),
   collapsedHostGroups: z.array(z.string().max(220)).max(1000).default([]),
   monitoringPlacement: z.enum(['sidebar', 'under-terminal']).default('sidebar'),
-  updateChannel: z.enum(['stable', 'prerelease']).default('stable'),
+  updateChannel: z.enum(['stable', 'prerelease']).default('prerelease'),
   shortcutBindings: shortcutBindingsSchema.optional(),
   themeId: z
     .enum([
@@ -132,6 +134,8 @@ export const settingsSchema = z.object({
 // Zod 4 applies defaults even inside partial() fields. IPC patches must contain
 // only supplied values, otherwise unrelated updates overwrite saved preferences.
 export const settingsPatchSchema = z.object({
+  dismissedUpdateVersion: settingsSchema.shape.dismissedUpdateVersion,
+  updateChannelPolicy: settingsSchema.shape.updateChannelPolicy,
   monitoringItems: settingsSchema.shape.monitoringItems.removeDefault().optional(),
   connectionsCollapsed: settingsSchema.shape.connectionsCollapsed.removeDefault().optional(),
   collapsedHostGroups: settingsSchema.shape.collapsedHostGroups.removeDefault().optional(),
@@ -267,6 +271,21 @@ export const requestSchema = z.discriminatedUnion('action', [
       .max(4096)
       .refine((value) => !value.includes('\u0000')),
     sessionId: id.optional(),
+  }),
+  z.object({
+    action: z.literal('files.move'),
+    side: z.enum(['local', 'remote']),
+    sessionId: id.optional(),
+    path: z
+      .string()
+      .min(1)
+      .max(4096)
+      .refine((value) => !value.includes('\u0000')),
+    destination: z
+      .string()
+      .min(1)
+      .max(4096)
+      .refine((value) => !value.includes('\u0000')),
   }),
   z
     .object({

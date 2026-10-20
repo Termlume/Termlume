@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('terminalApi', {
     chooseUpload: () => call('files.chooseUpload'),
     list: (location: Record<string, unknown>) => call('files.list', location),
     mutate: (request: Record<string, unknown>) => call('files.mutate', request),
+    move: (request: Record<string, unknown>) => call('files.move', request),
   },
   hosts: {
     list: () => call('hosts.list'),

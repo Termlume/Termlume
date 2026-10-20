@@ -102,6 +102,41 @@ export class FtpFileAccess {
       return posix.resolve(await client.pwd(), path)
     })
   }
+  move(id: string, source: string, directory: string) {
+    safePath(source)
+    safePath(directory)
+    return this.adapter(id).run(async (client) => {
+      const sourceStat = await lookup(client, source),
+        targetStat = await lookup(client, directory)
+      if (
+        !sourceStat ||
+        sourceStat.isSymbolicLink() ||
+        !targetStat?.isDirectory() ||
+        targetStat.isSymbolicLink()
+      )
+        throw new AppError('unsafe-link', 'Перемещать можно только обычные файлы и папки без символических ссылок')
+      const current = await client.pwd()
+      let destination: string, canonicalSource: string
+      try {
+        await client.cd(posix.dirname(source))
+        canonicalSource = posix.join(await client.pwd(), posix.basename(source))
+        await client.cd(current)
+        await client.cd(directory)
+        destination = await client.pwd()
+      } finally {
+        await client.cd(current)
+      }
+      if (
+        canonicalSource === '/' ||
+        (sourceStat.isDirectory() &&
+          (destination === canonicalSource || destination.startsWith(canonicalSource + '/')))
+      )
+        throw new AppError('move-descendant', 'Нельзя переместить папку в неё саму или её подпапку')
+      const target = posix.join(destination, posix.basename(source))
+      if (await lookup(client, target)) throw new AppError('exists', 'В папке назначения уже есть файл или папка с таким именем')
+      await client.rename(source, target)
+    })
+  }
   mutate(request: FileMutation) {
     safePath(request.path)
     if (request.name) validateFileName(request.name)

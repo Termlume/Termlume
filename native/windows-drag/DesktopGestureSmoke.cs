@@ -43,7 +43,24 @@ namespace Termlume.FileDrag {
     Console.WriteLine("{\"type\":\"desktop-ready\",\"directory\":"+new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(desktop)+"}");Console.Out.Flush();
     string line;
     while((line=Console.ReadLine())!=null) {
-     if(line=="down") {Native.mouse_event(2,0,0,0,UIntPtr.Zero);Console.WriteLine("{\"type\":\"pressed\"}");Console.Out.Flush();}
+     if(line.StartsWith("down-at|")) {
+      string[] values=line.Split('|');if(values.Length!=3)throw new Exception("Invalid down-at coordinates");
+      int x=Int32.Parse(values[1]),y=Int32.Parse(values[2]);
+      SetCursorPos(x,y);Thread.Sleep(100);Native.mouse_event(2,0,0,0,UIntPtr.Zero);Thread.Sleep(100);
+      for(int step=1;step<=12;step++){SetCursorPos(x+step,y);Thread.Sleep(20);}
+      Console.WriteLine("{\"type\":\"pressed\"}");Console.Out.Flush();
+     }
+     else if(line=="outside") {
+      SetCursorPos(point.x-12,point.y-12);Thread.Sleep(120);SetCursorPos(point.x,point.y);Thread.Sleep(120);
+      Console.WriteLine("{\"type\":\"outside\"}");Console.Out.Flush();
+     }
+     else if(line=="waitoutside") {
+      bool tracking=false;for(int attempt=0;attempt<120;attempt++){IntPtr badge=FindWindow(null,"Termlume.FileDrag.Active");if(badge!=IntPtr.Zero && IsWindowVisible(badge)){tracking=true;break;}Thread.Sleep(25);}
+      if(!tracking)throw new Exception("Native drag did not start after leaving the app window");
+      Console.WriteLine("{\"type\":\"tracking\"}");Console.Out.Flush();
+     }
+     else if(line=="cancel") {Native.mouse_event(4,0,0,0,UIntPtr.Zero);Console.WriteLine("{\"type\":\"cancelled\"}");Console.Out.Flush();}
+     else if(line=="down") {Native.mouse_event(2,0,0,0,UIntPtr.Zero);Console.WriteLine("{\"type\":\"pressed\"}");Console.Out.Flush();}
      else if(line=="release") {
       bool tracking=false;for(int attempt=0;attempt<80;attempt++){IntPtr badge=FindWindow(null,"Termlume.FileDrag.Active");if(badge!=IntPtr.Zero && IsWindowVisible(badge)){tracking=true;break;}Thread.Sleep(25);}
       SetCursorPos(point.x-12,point.y-12);Thread.Sleep(60);SetCursorPos(point.x,point.y);Thread.Sleep(150);

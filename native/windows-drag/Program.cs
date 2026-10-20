@@ -91,8 +91,13 @@ namespace Termlume.FileDrag {
    while(!response.WaitOne(0)){Application.DoEvents();Thread.Sleep(10);if(Cancelled || DateTime.UtcNow>deadline)throw new COMException("Transfer cancelled",unchecked((int)0x80004004));}
    lock(responseLock){if(responseError!=null)throw new IOException(responseError);if(String.IsNullOrEmpty(responsePath)||!Path.IsPathRooted(responsePath)||!File.Exists(responsePath))throw new IOException("Downloaded file unavailable");return responsePath;}
   }
+  [DllImport("user32.dll")] static extern void keybd_event(byte key,byte scan,uint flags,UIntPtr extra);
   static void Start(string id,string name,string sourceWindow){
    if(activeId!=null){Send(new{type="result",id=id,error="Another drag is active"});return;}
+   if((Native.GetAsyncKeyState(1)&0x8000)==0){Send(new{type="result",id=id,dropped=false});return;}
+   // Chromium owns the HTML drag's OLE loop until Escape is delivered. End that
+   // loop without releasing the physical button before starting the virtual file drag.
+   keybd_event(0x1B,0,0,UIntPtr.Zero);Thread.Sleep(30);keybd_event(0x1B,0,2,UIntPtr.Zero);Thread.Sleep(120);
    if((Native.GetAsyncKeyState(1)&0x8000)==0){Send(new{type="result",id=id,dropped=false});return;}
    activeId=id;Cancelled=false;Dropped=false;responsePath=responseError=null;response.Reset();
    using(var marker=new DragMarker{Text="Termlume.FileDrag.Active",ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.None,Opacity=0,Size=new System.Drawing.Size(1,1),StartPosition=FormStartPosition.Manual,Location=new System.Drawing.Point(-30000,-30000)}){

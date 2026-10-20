@@ -21,6 +21,7 @@ interface Props {
   onHome: () => void
   onCommands?: () => void
   commandsShortcut?: string
+  updateIndicator?: ReactNode
   footer?: ReactNode
 }
 export function Shell({
@@ -35,6 +36,7 @@ export function Shell({
   onCommands,
   commandsShortcut = 'Ctrl+Shift+P',
   footer,
+  updateIndicator,
 }: Props) {
   return (
     <div className="shell">
@@ -116,6 +118,7 @@ export function Shell({
         </span>
         {footer || <span>{ru.disconnected}</span>}
         <span className="status-end">
+          {updateIndicator}
           WINDOWS <span className="status-separator">/</span> UTF-8
         </span>
       </footer>

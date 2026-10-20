@@ -157,7 +157,7 @@ export class UpdateService {
     this.active = 'channel'
     try {
       const settings = await persist()
-      const next = settings.updateChannel ?? 'stable'
+      const next = settings.updateChannel ?? 'prerelease'
       if (next !== this.value.channel) {
         this.configure(next)
         const disabled = this.value.state === 'disabled'
@@ -271,7 +271,7 @@ export class UpdateService {
       () => {
         if (!['downloaded', 'installing'].includes(this.value.state)) void this.check()
       },
-      6 * 60 * 60 * 1000,
+      60 * 60 * 1000,
     )
     this.startup.unref?.()
     this.periodic.unref?.()

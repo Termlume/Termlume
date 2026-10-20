@@ -45,3 +45,103 @@
   color: var(--muted);
   line-height: 1.5;
 }
+
+.update-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  margin-right: 10px;
+}
+.update-indicator.has-update {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.update-indicator:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.update-dialog-backdrop {
+  z-index: 11000;
+}
+.update-dialog {
+  position: relative;
+  width: min(460px, calc(100vw - 32px));
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 30px;
+}
+.update-dialog h2,
+.update-dialog p {
+  margin: 0;
+}
+.update-dialog-close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+.update-dialog-symbol {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 66px;
+  height: 66px;
+  border-radius: 18px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.update-whats-new {
+  text-align: left;
+  max-height: 300px;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.update-whats-new h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.update-whats-new > div {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.update-dialog progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.update-indicator-error {
+  position: fixed;
+  bottom: 30px;
+  right: 16px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  z-index: 11001;
+}
+
+.update-dialog {
+  font-size: 13px;
+  letter-spacing: normal;
+}
+.update-dialog h2 {
+  font-size: 21px;
+}
+
+.update-dialog { color:var(--text); font:13px/1.5 "Segoe UI",sans-serif; letter-spacing:normal; }
+.update-dialog h2 { font-weight:600; }
+.update-dialog > .text-button { align-self:center; }

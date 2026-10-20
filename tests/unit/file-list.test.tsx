@@ -66,7 +66,7 @@ it('sorts by numeric columns in both directions while keeping folders first and 
   expect(view.container.querySelector('col')?.style.width).toBe('190px')
 })
 
-it('starts immediate native file drags without letting Chromium own the drag', () => {
+it('keeps in-window drags in Chromium and starts native drag only outside the window', () => {
   const entry = {
       name: 'router.conf',
       type: 'file' as const,
@@ -82,6 +82,7 @@ it('starts immediate native file drags without letting Chromium own the drag', (
       onSelect={() => {}}
       onOpen={() => {}}
       onParent={() => {}}
+      dragOwner="test-owner"
       onBeginExternalDrag={beginExternalDrag}
     />,
   )
@@ -91,8 +92,23 @@ it('starts immediate native file drags without letting Chromium own the drag', (
     dataTransfer: { effectAllowed: '', setData: vi.fn() },
   })
 
+  expect(beginExternalDrag).not.toHaveBeenCalled()
+  expect(started).toBe(true)
+  fireEvent(
+    document,
+    new MouseEvent('dragleave', { clientX: 25, clientY: 25, relatedTarget: null }),
+  )
+  expect(beginExternalDrag).not.toHaveBeenCalled()
+  fireEvent(
+    document,
+    new MouseEvent('dragleave', { clientX: -1, clientY: 25, relatedTarget: null }),
+  )
   expect(beginExternalDrag).toHaveBeenCalledWith(entry)
-  expect(started).toBe(false)
+  fireEvent(
+    document,
+    new MouseEvent('dragleave', { clientX: -1, clientY: 25, relatedTarget: null }),
+  )
+  expect(beginExternalDrag).toHaveBeenCalledTimes(1)
 })
 
 it('shows remote permissions as octal and symbolic access modes', () => {
@@ -116,4 +132,43 @@ it('shows remote permissions as octal and symbolic access modes', () => {
   )
 
   expect(screen.getByText('0754 · rwxr-xr--')).toBeTruthy()
+})
+
+it('moves an internal file into a folder only for its owning browser', () => {
+  const move = vi.fn(),
+    native = vi.fn()
+  render(
+    <FileList
+      entries={[
+        { name: 'source', type: 'file', size: 1, modifiedAt: 1, isSymlink: false },
+        { name: 'target', type: 'directory', size: 0, modifiedAt: 1, isSymlink: false },
+      ]}
+      selected={[]}
+      onSelect={() => {}}
+      onOpen={() => {}}
+      onParent={() => {}}
+      dragOwner="owner"
+      onMove={move}
+      onBeginExternalDrag={native}
+    />,
+  )
+  const payload: Record<string, string> = {}
+  const dataTransfer = {
+    effectAllowed: '',
+    types: ['application/x-termlume-file'],
+    setData: (type: string, data: string) => {
+      payload[type] = data
+    },
+    getData: (type: string) => payload[type],
+  }
+  fireEvent.dragStart(screen.getByText('source').closest('tr')!, { dataTransfer })
+  fireEvent.drop(screen.getByText('target').closest('tr')!, { dataTransfer })
+  expect(move).toHaveBeenCalledWith('source', expect.objectContaining({ name: 'target' }))
+  expect(native).not.toHaveBeenCalled()
+  payload['application/x-termlume-file'] = JSON.stringify({
+    owner: 'different-server',
+    name: 'source',
+  })
+  fireEvent.drop(screen.getByText('target').closest('tr')!, { dataTransfer })
+  expect(move).toHaveBeenCalledTimes(1)
 })

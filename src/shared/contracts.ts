@@ -221,6 +221,9 @@ export interface FileDragRequest {
   size: number
   modifiedAt: number
 }
+export interface FileMove extends FileLocation {
+  destination: string
+}
 export interface FileMutation extends FileLocation {
   operation: 'mkdir' | 'rename' | 'remove' | 'chmod' | 'chown'
   name?: string
@@ -263,6 +266,8 @@ export interface UpdateStatus {
   message?: string
 }
 export interface Settings {
+  dismissedUpdateVersion?: string
+  updateChannelPolicy?: 1
   monitoringItems?: import('./monitoring-items').MonitorItem[]
   connectionsCollapsed?: boolean
   collapsedHostGroups?: string[]
