@@ -27,7 +27,11 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: node scripts/validate-release.cjs
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          $env:GITHUB_REF_NAME = $env:RELEASE_TAG
+          node scripts/validate-release.cjs
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
