@@ -1,9 +1,28 @@
+import { sections } from './commands'
 import type { MemoryUsage, DiskMetrics, NetworkRates } from '../../shared/contracts'
 export interface CpuCounters {
   total: number
   idle: number
 }
 export type NetworkCounters = Record<string, { rx: number; tx: number }>
+export function parseWho(text: string) {
+  const sessions: { user: string; terminal: string; loginText?: string; from?: string }[] = []
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const match =
+      /^(\S+)\s+(\S+)\s+((?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2}\s+\d{1,2})\s+\d{2}:\d{2}(?::\d{2})?)(?:\s+\(([^\r\n]*)\))?\s*$/.exec(
+        line,
+      )
+    if (!match) throw new Error('Некорректный ответ who')
+    sessions.push({
+      user: match[1],
+      terminal: match[2],
+      loginText: match[3],
+      ...(match[4] === undefined ? {} : { from: match[4] }),
+    })
+  }
+  return { sessions }
+}
 export function parseCpu(text: string): CpuCounters {
   const line = text.split('\n').find((line) => /^cpu\s/.test(line))
   if (!line) throw new Error('Нет /proc/stat')
@@ -33,7 +52,10 @@ export function parseMemory(text: string): { ram?: MemoryUsage; swap?: MemoryUsa
       ? { total, available, used: total - available }
       : undefined
   return {
-    ram: usage(fields.MemTotal, fields.MemAvailable),
+    ram: (() => {
+      const ram = usage(fields.MemTotal, fields.MemAvailable)
+      return ram ? { ...ram, cached: fields.Cached, buffers: fields.Buffers } : undefined
+    })(),
     swap: usage(fields.SwapTotal, fields.SwapFree),
   }
 }
@@ -95,4 +117,135 @@ export function parseUptime(text: string): number {
   const value = Number(text.trim().split(/\s+/)[0])
   if (!Number.isFinite(value) || value < 0) throw new Error('Нет /proc/uptime')
   return value
+}
+
+export type SessionSource = 'who' | 'loginctl' | 'process' | 'current-connection'
+export interface ObservedSession {
+  user: string
+  terminal: string
+  loginText?: string
+  from?: string
+  source?: SessionSource
+}
+export function parseLoginSessions(text: string): ObservedSession[] {
+  const result: ObservedSession[] = []
+  for (const block of text.split('__SESSION_END__')) {
+    const fields = Object.fromEntries(
+      block
+        .trim()
+        .split(/\r?\n/)
+        .map((line) => {
+          const i = line.indexOf('=')
+          return [line.slice(0, i), line.slice(i + 1)]
+        }),
+    )
+    if (
+      !fields.Name ||
+      !fields.TTY ||
+      fields.State === 'closing' ||
+      (fields.Class && !['user', 'user-early'].includes(fields.Class))
+    )
+      continue
+    result.push({
+      user: fields.Name,
+      terminal: fields.TTY,
+      ...(fields.RemoteHost ? { from: fields.RemoteHost } : {}),
+      source: 'loginctl',
+    })
+  }
+  return result
+}
+export function parseProcessSessions(text: string): ObservedSession[] {
+  const result = new Map<string, ObservedSession>()
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*(\S+)\s+(\S+)\s+(.+)$/.exec(line)
+    if (!match || !/^(?:pts\/\d+|tty\d+)$/.test(match[2])) continue
+    if (
+      !/^(?:sshd(?:-session)?:|(?:-)?(?:\/\S*\/)?(?:bash|zsh|sh|fish|dash|ksh)(?:\s|$))/.test(
+        match[3],
+      )
+    )
+      continue
+    result.set(`${match[1]}:${match[2]}`, { user: match[1], terminal: match[2], source: 'process' })
+  }
+  return [...result.values()]
+}
+export function parseSystem(text: string) {
+  const raw = sections(text)
+  const result: {
+    hostname?: string
+    loadAverage?: number[]
+    processes?: { running: number; total: number }
+    fileDescriptors?: { allocated: number; maximum: number }
+    connections?: {
+      total: number
+      ports: { port: number; count: number }[]
+      details?: string
+      source?: 'ss' | 'netstat'
+      truncated?: boolean
+    }
+    nfsMounts?: { source: string; mount: string; type: string }[]
+  } = {}
+  const load = /^([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\/(\d+)/.exec((raw.LOAD || '').trim())
+  if (load) {
+    result.loadAverage = load.slice(1, 4).map(Number)
+  }
+  if (raw.PROCESSES?.includes('__PS_OK__')) {
+    const states = raw.PROCESSES.split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^[RSDTtXZIKWP][a-zA-Z<NLsl+]*$/.test(line))
+    result.processes = {
+      running: states.filter((state) => state.startsWith('R')).length,
+      total: states.length,
+    }
+  }
+  const files = /^(\d+)\s+(\d+)\s+(\d+)/.exec((raw.FILES || '').trim())
+  if (files)
+    result.fileDescriptors = {
+      allocated: Math.max(0, Number(files[1]) - Number(files[2])),
+      maximum: Number(files[3]),
+    }
+  if (raw.HOST?.trim()) result.hostname = raw.HOST.trim()
+  if (raw.MOUNTS?.includes('__MOUNTS_OK__'))
+    result.nfsMounts = raw.MOUNTS.trim()
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        const f = line.split(/\s+/)
+        const decode = (v: string) =>
+          v.replace(/\\([0-7]{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)))
+        return ['nfs', 'nfs4'].includes(f[2])
+          ? [{ source: decode(f[0]), mount: decode(f[1]), type: f[2] }]
+          : []
+      })
+  if (raw.CONNECTIONS?.includes('__SS_OK__') || raw.CONNECTIONS?.includes('__NETSTAT_OK__')) {
+    const source = raw.CONNECTIONS.includes('__SS_OK__') ? ('ss' as const) : ('netstat' as const)
+    const output = raw.CONNECTIONS.replace(/__(?:SS|NETSTAT)_OK__/g, '').trim()
+    const ports = new Map<number, number>()
+    let total = 0
+    for (const line of output.split(/\r?\n/)) {
+      const f = line.trim().split(/\s+/)
+      let endpoint: string | undefined
+      if (source === 'netstat') {
+        if (!/^tcp6?$/.test(f[0]) || f[5] !== 'ESTABLISHED') continue
+        endpoint = f[3]
+      } else {
+        if (f[0] === 'ESTAB') endpoint = f[3]
+        else if (/^\d+$/.test(f[0]) && /^\d+$/.test(f[1])) endpoint = f[2]
+        else continue
+      }
+      const match = endpoint && /:(\d+)$/.exec(endpoint)
+      if (!match) continue
+      const port = Number(match[1])
+      total++
+      ports.set(port, (ports.get(port) || 0) + 1)
+    }
+    result.connections = {
+      total,
+      ports: [...ports].map(([port, count]) => ({ port, count })).sort((a, b) => a.port - b.port),
+      source,
+      details: output.slice(0, 65536),
+      truncated: output.length > 65536,
+    }
+  }
+  return result
 }

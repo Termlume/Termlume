@@ -1,3 +1,4 @@
+import '../features/hosts/hosts.css'
 import type { ReactNode } from 'react'
 import { Plus, Search, Server, Star, ChevronDown } from 'lucide-react'
 import { ru } from './ru'
@@ -8,7 +9,11 @@ export function Sidebar({
   onSearch = () => {},
   favoriteOnly = false,
   onFavorite = () => {},
+  connectionsCollapsed = false,
+  onToggleConnections = () => {},
 }: {
+  connectionsCollapsed?: boolean
+  onToggleConnections?: () => void
   children?: ReactNode
   onNew: () => void
   search?: string
@@ -35,27 +40,52 @@ export function Sidebar({
           value={search}
           onChange={(event) => onSearch(event.target.value)}
         />
-        <kbd>⌕</kbd>
+        {search ? (
+          <button
+            type="button"
+            className="search-clear"
+            aria-label="Сбросить поиск"
+            onClick={() => onSearch('')}
+          >
+            ×
+          </button>
+        ) : (
+          <kbd>⌕</kbd>
+        )}
       </label>
       <button className={'sidebar-filter ' + (favoriteOnly ? 'selected' : '')} onClick={onFavorite}>
         <Star size={15} />
         {ru.favorites}
       </button>
-      <div className="section-heading">
-        <ChevronDown size={12} />
+      <button
+        type="button"
+        className="section-heading"
+        aria-expanded={!!search.trim() || !connectionsCollapsed}
+        onClick={() => {
+          if (!search.trim()) onToggleConnections()
+        }}
+      >
+        <ChevronDown
+          size={12}
+          style={{
+            transform: !search.trim() && connectionsCollapsed ? 'rotate(-90deg)' : undefined,
+          }}
+        />
         <span>{ru.allHosts}</span>
-      </div>
-      <div className="host-scroll">
-        {children || (
-          <div className="sidebar-empty">
-            <Server size={27} strokeWidth={1.3} />
-            <p>{ru.noHosts}</p>
-            <button className="text-button" onClick={onNew}>
-              Добавить подключение <Plus size={13} />
-            </button>
-          </div>
-        )}
-      </div>
+      </button>
+      {(!!search.trim() || !connectionsCollapsed) && (
+        <div className="host-scroll">
+          {children || (
+            <div className="sidebar-empty">
+              <Server size={27} strokeWidth={1.3} />
+              <p>{ru.noHosts}</p>
+              <button className="text-button" onClick={onNew}>
+                Добавить подключение <Plus size={13} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </>
   )
 }

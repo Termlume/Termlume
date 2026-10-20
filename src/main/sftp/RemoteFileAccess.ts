@@ -9,8 +9,9 @@ import type {
   TransferRequest,
 } from '../../shared/contracts'
 import { AppError } from '../../shared/errors'
-import { ensureLocalPath, safeDownloadTarget } from './local-paths'
+import { ensureLocalPath, safeDownloadTarget, validateFileName } from './local-paths'
 import { SftpService } from './SftpService'
+import type { FtpFileAccess } from './FtpFileAccess'
 import { ScpService } from './ScpService'
 import { TransferConflict, transferFile } from './transfer-file'
 import type { TransferJob } from './TransferQueue'
@@ -62,6 +63,8 @@ export class RemoteFileAccess {
   constructor(
     private sftp: SftpService,
     private scp: ScpService,
+    private standalone: (id: string) => boolean = () => false,
+    private ftp?: { matches: (id: string) => boolean; provider: FtpFileAccess },
   ) {}
   private async mode(id: string): Promise<'sftp' | 'scp'> {
     const current = this.modes.get(id)
@@ -71,12 +74,13 @@ export class RemoteFileAccess {
       this.modes.set(id, 'sftp')
       return 'sftp'
     } catch (error) {
-      if ((error as AppError).code !== 'sftp-unsupported') throw error
+      if (this.standalone(id) || (error as AppError).code !== 'sftp-unsupported') throw error
       this.modes.set(id, 'scp')
       return 'scp'
     }
   }
   async list(id: string, path: string): Promise<FileListing> {
+    if (this.ftp?.matches(id)) return this.ftp.provider.list(id, path)
     const mode = await this.mode(id)
     if (mode === 'scp')
       return {
@@ -86,14 +90,15 @@ export class RemoteFileAccess {
         capabilities: scpCapabilities,
       }
     const entries = await this.sftp.list(id, path)
-    await Promise.all(
-      entries.map(async (entry) => {
-        ;[entry.owner, entry.group] = await Promise.all([
-          this.scp.resolvePrincipal(id, 'passwd', entry.owner),
-          this.scp.resolvePrincipal(id, 'group', entry.group),
-        ])
-      }),
-    )
+    if (!this.standalone(id))
+      await Promise.all(
+        entries.map(async (entry) => {
+          ;[entry.owner, entry.group] = await Promise.all([
+            this.scp.resolvePrincipal(id, 'passwd', entry.owner),
+            this.scp.resolvePrincipal(id, 'group', entry.group),
+          ])
+        }),
+      )
     return {
       path: await this.sftp.realpath(id, path),
       entries,
@@ -102,6 +107,7 @@ export class RemoteFileAccess {
     }
   }
   async stat(id: string, path: string): Promise<RemoteStat | undefined> {
+    if (this.ftp?.matches(id)) return this.ftp.provider.stat(id, path)
     const mode = await this.mode(id)
     return mode === 'scp' ? this.scp.stat(id, path) : this.sftp.statOptional(id, path)
   }
@@ -109,12 +115,14 @@ export class RemoteFileAccess {
     return this.stat(id, path)
   }
   async realpath(id: string, path: string): Promise<string> {
+    if (this.ftp?.matches(id)) return this.ftp.provider.realpath(id, path)
     return (await this.mode(id)) === 'scp'
       ? this.scp.realpath(id, path)
       : this.sftp.realpath(id, path)
   }
   async mutate(request: FileMutation): Promise<void> {
     const id = request.sessionId
+    if (id && this.ftp?.matches(id)) return this.ftp.provider.mutate(request)
     if (!id) throw new AppError('files-session-required', 'Выберите SSH-сеанс')
     if ((await this.mode(id)) === 'scp') {
       const operation =
@@ -137,6 +145,20 @@ export class RemoteFileAccess {
     if (request.operation === 'chown') {
       if (!request.owner || !request.group)
         throw new AppError('invalid-principal', 'Укажите владельца и группу')
+      if (this.standalone(id)) {
+        if (!/^\d+$/.test(request.owner) || !/^\d+$/.test(request.group))
+          throw new AppError('invalid-principal', 'SFTP требует числовые UID и GID')
+        const uid = Number(request.owner),
+          gid = Number(request.group)
+        if (
+          !Number.isSafeInteger(uid) ||
+          !Number.isSafeInteger(gid) ||
+          uid > 0xffffffff ||
+          gid > 0xffffffff
+        )
+          throw new AppError('invalid-principal', 'UID и GID должны быть 32-битными числами')
+        return this.sftp.chown(id, request.path, uid, gid)
+      }
       const [uid, gid] = await Promise.all([
         this.scp.resolvePrincipalId(id, 'passwd', request.owner),
         this.scp.resolvePrincipalId(id, 'group', request.group),
@@ -158,6 +180,169 @@ export class RemoteFileAccess {
     signal: AbortSignal,
     progress: (done: number, total: number) => void,
   ): Promise<void> {
+    signal.throwIfAborted()
+    const source =
+      request.direction === 'upload'
+        ? await fs.lstat(await ensureLocalPath(request.localRoot, request.source))
+        : await this.lstat(request.sessionId, request.source)
+    if (source?.isSymbolicLink())
+      throw new AppError('symlink-unsupported', 'Передача символических ссылок не поддерживается')
+    if (!source?.isDirectory()) return this.transferSingle(request, signal, progress)
+    const files: { source: string; target: string; size: number }[] = []
+    const directories: string[] = []
+    let total = 0,
+      count = 0
+    const scan = async (sourcePath: string, targetPath: string, depth: number): Promise<void> => {
+      signal.throwIfAborted()
+      if (depth > 128 || ++count > 100000)
+        throw new AppError(
+          'directory-limit',
+          'Папка превышает ограничение глубины или количества файлов',
+        )
+      directories.push(targetPath)
+      const entries =
+        request.direction === 'upload'
+          ? await Promise.all(
+              (await fs.readdir(await ensureLocalPath(request.localRoot, sourcePath))).map(
+                async (name) => {
+                  const stat = await fs.lstat(join(sourcePath, name))
+                  return {
+                    name,
+                    type: stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'symlink',
+                    size: stat.size,
+                    isSymlink: stat.isSymbolicLink(),
+                  }
+                },
+              ),
+            )
+          : (await this.list(request.sessionId, sourcePath)).entries
+      for (const entry of entries) {
+        signal.throwIfAborted()
+        validateFileName(entry.name)
+        if (entry.isSymlink || entry.type === 'symlink')
+          throw new AppError(
+            'symlink-unsupported',
+            'Папка содержит символическую ссылку: ' + entry.name,
+          )
+        const from =
+          request.direction === 'upload'
+            ? join(sourcePath, entry.name)
+            : posix.join(sourcePath, entry.name)
+        const to =
+          request.direction === 'upload'
+            ? posix.join(targetPath, entry.name)
+            : join(targetPath, entry.name)
+        if (entry.type === 'directory') await scan(from, to, depth + 1)
+        else {
+          if (++count > 100000) throw new AppError('directory-limit', 'Слишком много файлов')
+          files.push({ source: from, target: to, size: entry.size })
+          total += entry.size
+        }
+      }
+    }
+    const stage =
+      request.direction === 'upload'
+        ? posix.join(posix.dirname(request.target), `.termlume-${randomUUID()}.part`)
+        : join(dirname(request.target), `.termlume-${randomUUID()}.part`)
+    await scan(request.source, stage, 0)
+    const existing =
+      request.direction === 'upload'
+        ? await this.lstat(request.sessionId, request.target)
+        : await fs.lstat(request.target).catch((error) => {
+            if (error.code === 'ENOENT') return undefined
+            throw error
+          })
+    if (existing)
+      throw new AppError(
+        'directory-exists',
+        'Папка назначения уже существует. Выберите новое имя папки; объединение папок не поддерживается.',
+      )
+    const completedFiles: string[] = [],
+      createdDirectories: string[] = []
+    const ftpCleanup =
+      request.direction === 'upload' && this.ftp?.matches(request.sessionId)
+        ? this.ftp.provider.stageCleanup(request.sessionId, stage)
+        : undefined
+    let committed = false
+    try {
+      for (const target of directories) {
+        signal.throwIfAborted()
+        if (request.direction === 'upload')
+          await this.mutate({
+            side: 'remote',
+            sessionId: request.sessionId,
+            path: posix.dirname(target),
+            name: posix.basename(target),
+            operation: 'mkdir',
+          })
+        else
+          await fs.mkdir(
+            await safeDownloadTarget(request.localRoot, dirname(target), basename(target)),
+          )
+        createdDirectories.push(target)
+      }
+      let done = 0
+      for (const file of files) {
+        await this.transferSingle(
+          { ...request, ...file, overwrite: false, targetVersion: undefined },
+          signal,
+          (bytes) => progress(done + bytes, total),
+        )
+        completedFiles.push(file.target)
+        done += file.size
+      }
+      signal.throwIfAborted()
+      if (request.direction === 'upload')
+        await this.mutate({
+          side: 'remote',
+          sessionId: request.sessionId,
+          path: stage,
+          name: posix.basename(request.target),
+          operation: 'rename',
+        })
+      else {
+        const target = await safeDownloadTarget(
+          request.localRoot,
+          dirname(request.target),
+          basename(request.target),
+        )
+        await fs.rename(stage, target)
+      }
+      committed = true
+    } finally {
+      if (ftpCleanup) await ftpCleanup(committed)
+      else if (!committed) {
+        if (request.direction === 'download')
+          await fs.rm(stage, { recursive: true, force: true }).catch(() => {})
+        else {
+          for (const path of completedFiles.reverse())
+            await this.mutate({
+              side: 'remote',
+              sessionId: request.sessionId,
+              path,
+              operation: 'remove',
+              fileType: 'file',
+            }).catch(() => {})
+          for (const path of createdDirectories.reverse())
+            await this.mutate({
+              side: 'remote',
+              sessionId: request.sessionId,
+              path,
+              operation: 'remove',
+              fileType: 'empty-directory',
+            }).catch(() => {})
+        }
+      }
+    }
+    progress(total, total)
+  }
+  private async transferSingle(
+    request: TransferJob,
+    signal: AbortSignal,
+    progress: (done: number, total: number) => void,
+  ): Promise<void> {
+    if (this.ftp?.matches(request.sessionId))
+      return this.ftp.provider.transfer(request, signal, progress)
     const mode = await this.mode(request.sessionId)
     if (mode === 'sftp') return transferFile(this.sftp, request, signal, progress)
     signal.throwIfAborted()

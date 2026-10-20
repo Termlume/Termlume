@@ -98,3 +98,33 @@ it('reportsAnUploadFailureAndPreservesTheEditedCopyForRecovery', async () => {
   await service.close()
   expect(await fs.readFile(opened.localPath, 'utf8')).toBe('unsynced data')
 })
+
+it('closing one session removes its clean temp copies and leaves another session watchable', async () => {
+  const root = await fs.mkdtemp(join(tmpdir(), 'termlume-session-edit-'))
+  roots.push(root)
+  const version = { size: 4, modifiedAt: 1 },
+    upload = vi.fn(async () => {})
+  const service = new RemoteEditService({
+    root,
+    stat: async () => version,
+    fingerprint: async () => createHash('sha256').update('edit').digest('hex'),
+    download: async (_session, _remote, local) => fs.writeFile(local, 'edit'),
+    upload,
+    open: async () => '',
+    confirmOverwrite: async () => false,
+    notify: vi.fn(),
+    debounceMs: 20,
+  })
+  try {
+    const first = await service.open('one', '/first.txt'),
+      second = await service.open('two', '/second.txt')
+    await service.closeSession('one')
+    await expect(fs.stat(first.localPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(service.open('one', '/first.txt')).rejects.toMatchObject({ code: 'canceled' })
+    await fs.writeFile(second.localPath, 'changed')
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
+    expect(upload.mock.calls[0][0]).toBe('two')
+  } finally {
+    await service.close()
+  }
+})

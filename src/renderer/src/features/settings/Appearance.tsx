@@ -1,3 +1,8 @@
+import {
+  MONITOR_ITEMS,
+  MONITOR_ITEM_LABELS,
+  DEFAULT_MONITOR_ITEMS,
+} from '../../../../shared/monitoring-items'
 import { useMemo, useState } from 'react'
 import { Check, X, Palette, Type } from 'lucide-react'
 import { themes } from '../../themes/palettes'
@@ -34,6 +39,12 @@ export function Appearance({
       settings.monitoringIntervalSeconds ?? 3,
     ),
     [smoothInput, setSmoothInput] = useState(settings.smoothInput),
+    [monitoringPlacement, setMonitoringPlacement] = useState(
+      settings.monitoringPlacement ?? 'sidebar',
+    ),
+    [monitoringItems, setMonitoringItems] = useState(
+      settings.monitoringItems ?? DEFAULT_MONITOR_ITEMS,
+    ),
     [error, setError] = useState('')
   const controller = useMemo(
     () =>
@@ -58,6 +69,8 @@ export function Appearance({
           localShell,
           smoothInput,
           monitoringIntervalSeconds,
+          monitoringPlacement,
+          monitoringItems,
         }),
       )
       onClose()
@@ -210,6 +223,18 @@ export function Appearance({
             />
             <span className="muted small">секунд (от 1 до 60)</span>
           </label>
+          <label>
+            Расположение мониторинга
+            <select
+              value={monitoringPlacement}
+              onChange={(event) =>
+                setMonitoringPlacement(event.target.value as 'sidebar' | 'under-terminal')
+              }
+            >
+              <option value="sidebar">В боковой панели</option>
+              <option value="under-terminal">Под терминалом</option>
+            </select>
+          </label>
         </div>
         {onShortcuts && (
           <button
@@ -221,6 +246,27 @@ export function Appearance({
           >
             Настроить горячие клавиши
           </button>
+        )}
+        {monitoringPlacement === 'under-terminal' && (
+          <fieldset className="monitoring-items-settings">
+            <legend>Пункты нижнего мониторинга</legend>
+            {MONITOR_ITEMS.map((item) => (
+              <label className="checkbox-label" key={item}>
+                <input
+                  type="checkbox"
+                  checked={monitoringItems.includes(item)}
+                  onChange={() =>
+                    setMonitoringItems((current) =>
+                      current.includes(item)
+                        ? current.filter((value) => value !== item)
+                        : [...current, item],
+                    )
+                  }
+                />
+                {MONITOR_ITEM_LABELS[item]}
+              </label>
+            ))}
+          </fieldset>
         )}
         <DataTransfer />
         <Updates settings={settings} onSaved={onSaved} />

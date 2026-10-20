@@ -9,6 +9,7 @@ export type SessionState =
   | 'error'
   | 'closing'
 interface HostBase {
+  tags?: string[]
   id: string
   name: string
   group: string
@@ -27,6 +28,24 @@ export type HostProfile = HostBase &
         keyPath?: string
         secretRef?: string
         monitoringEnabled: boolean
+      }
+    | {
+        protocol: 'sftp'
+        host: string
+        port: number
+        username: string
+        auth: 'password' | 'key'
+        identityId?: string
+        keyPath?: string
+        secretRef?: string
+      }
+    | {
+        protocol: 'ftp'
+        host: string
+        port: number
+        username: string
+        security: 'none' | 'explicit-tls' | 'implicit-tls'
+        secretRef?: string
       }
     | {
         protocol: 'telnet'
@@ -101,6 +120,8 @@ export interface Metric<T> {
   sampledAt?: number
 }
 export interface MemoryUsage {
+  cached?: number
+  buffers?: number
   total: number
   available: number
   used: number
@@ -125,7 +146,31 @@ export interface MetricPoint {
   rx?: number
   tx?: number
 }
+export interface SystemMetrics {
+  hostname?: string
+  loadAverage?: number[]
+  processes?: { running: number; total: number }
+  fileDescriptors?: { allocated: number; maximum: number }
+  connections?: {
+    total: number
+    ports: { port: number; count: number }[]
+    details?: string
+    source?: 'ss' | 'netstat'
+    truncated?: boolean
+  }
+  nfsMounts?: { source: string; mount: string; type: string }[]
+}
 export interface MetricSnapshot {
+  system?: Metric<SystemMetrics>
+  users?: Metric<{
+    sessions: {
+      source?: 'who' | 'loginctl' | 'process' | 'current-connection'
+      user: string
+      terminal: string
+      loginText?: string
+      from?: string
+    }[]
+  }>
   sampledAt: number
   state: 'sampling' | 'paused' | 'error' | 'unsupported'
   error?: string
@@ -147,7 +192,7 @@ export interface FileEntry {
   owner?: string
   group?: string
 }
-export type FileAccessMode = 'sftp' | 'scp' | 'wsl' | 'local'
+export type FileAccessMode = 'sftp' | 'scp' | 'ftp' | 'ftps' | 'wsl' | 'local'
 export interface FileCapabilities {
   list: boolean
   upload: boolean
@@ -218,6 +263,10 @@ export interface UpdateStatus {
   message?: string
 }
 export interface Settings {
+  monitoringItems?: import('./monitoring-items').MonitorItem[]
+  connectionsCollapsed?: boolean
+  collapsedHostGroups?: string[]
+  monitoringPlacement?: 'sidebar' | 'under-terminal'
   updateChannel?: UpdateChannel
   shortcutBindings?: import('./keyboard-shortcuts').ShortcutBindings
   themeId: ThemeId

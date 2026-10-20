@@ -48,7 +48,11 @@ const payloadSchema = z
       identityIds.add(identity.id)
     }
     for (const host of data.hosts)
-      if (host.protocol === 'ssh' && host.identityId && !identityIds.has(host.identityId))
+      if (
+        (host.protocol === 'ssh' || host.protocol === 'sftp') &&
+        host.identityId &&
+        !identityIds.has(host.identityId)
+      )
         context.addIssue({ code: 'custom', message: 'Host references a missing SSH identity' })
   })
 

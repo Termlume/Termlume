@@ -33,7 +33,10 @@ export class MonitoringService {
     this.activeId = id
     let monitor = this.monitors.get(id)
     if (!monitor) {
-      monitor = new LinuxMonitor(source.exec, { intervalSeconds: this.intervalSeconds })
+      monitor = new LinuxMonitor(source.exec, {
+        intervalSeconds: this.intervalSeconds,
+        currentUser: source.profile.username,
+      })
       monitor.subscribe((snapshot) => {
         if (this.activeId === id && this.windowVisible) this.sink(id, snapshot)
       })

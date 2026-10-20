@@ -1,3 +1,4 @@
+import { MONITOR_ITEMS, DEFAULT_MONITOR_ITEMS } from './monitoring-items'
 import { SHORTCUT_IDS, shortcutBindingsError } from './keyboard-shortcuts'
 import { z } from 'zod'
 const id = z.uuid()
@@ -14,6 +15,17 @@ export const fileDragSchema = z
   })
   .strict()
 const base = {
+  tags: z
+    .array(z.string().trim().max(40))
+    .max(30)
+    .default([])
+    .transform((values) => [
+      ...new Set(
+        values
+          .map((value) => value.replace(/^#+/, '').trim().replace(/\s+/g, '-').toLocaleLowerCase())
+          .filter(Boolean),
+      ),
+    ]),
   id,
   name: z.string().trim().min(1).max(100),
   group: z.string().max(100).default(''),
@@ -45,6 +57,26 @@ export const hostSchema = z.discriminatedUnion('protocol', [
   }),
   z.object({
     ...base,
+    protocol: z.literal('sftp'),
+    host,
+    port: port.default(22),
+    username: z.string().min(1).max(100),
+    auth: z.enum(['password', 'key']),
+    identityId: id.optional(),
+    keyPath: z.string().max(4096).optional(),
+    secretRef: id.optional(),
+  }),
+  z.object({
+    ...base,
+    protocol: z.literal('ftp'),
+    host,
+    port: port.default(21),
+    username: z.string().min(1).max(100),
+    security: z.enum(['none', 'explicit-tls', 'implicit-tls']).default('explicit-tls'),
+    secretRef: id.optional(),
+  }),
+  z.object({
+    ...base,
     protocol: z.literal('telnet'),
     host,
     port: port.default(23),
@@ -59,6 +91,13 @@ export const shortcutBindingsSchema = z
     if (message) context.addIssue({ code: 'custom', message })
   })
 export const settingsSchema = z.object({
+  monitoringItems: z
+    .array(z.enum(MONITOR_ITEMS))
+    .max(MONITOR_ITEMS.length)
+    .default(DEFAULT_MONITOR_ITEMS),
+  connectionsCollapsed: z.boolean().default(false),
+  collapsedHostGroups: z.array(z.string().max(220)).max(1000).default([]),
+  monitoringPlacement: z.enum(['sidebar', 'under-terminal']).default('sidebar'),
   updateChannel: z.enum(['stable', 'prerelease']).default('stable'),
   shortcutBindings: shortcutBindingsSchema.optional(),
   themeId: z
@@ -93,6 +132,10 @@ export const settingsSchema = z.object({
 // Zod 4 applies defaults even inside partial() fields. IPC patches must contain
 // only supplied values, otherwise unrelated updates overwrite saved preferences.
 export const settingsPatchSchema = z.object({
+  monitoringItems: settingsSchema.shape.monitoringItems.removeDefault().optional(),
+  connectionsCollapsed: settingsSchema.shape.connectionsCollapsed.removeDefault().optional(),
+  collapsedHostGroups: settingsSchema.shape.collapsedHostGroups.removeDefault().optional(),
+  monitoringPlacement: settingsSchema.shape.monitoringPlacement.removeDefault().optional(),
   updateChannel: settingsSchema.shape.updateChannel.removeDefault().optional(),
   shortcutBindings: settingsSchema.shape.shortcutBindings,
   themeId: settingsSchema.shape.themeId.removeDefault().optional(),

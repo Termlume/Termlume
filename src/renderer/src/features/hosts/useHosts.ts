@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { HostProfile } from '../../../../shared/contracts'
 export function filterHosts(hosts: HostProfile[], query: string, favorites: boolean) {
-  const text = query.trim().toLocaleLowerCase()
-  return hosts.filter(
-    (host) =>
-      (!favorites || host.favorite) &&
-      [host.name, host.group, host.protocol === 'wsl' ? host.distribution : host.host].some(
-        (value) => value.toLocaleLowerCase().includes(text),
-      ),
-  )
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  return hosts.filter((host) => {
+    if (favorites && !host.favorite) return false
+    const tags = (host.tags || []).map((tag) => tag.toLocaleLowerCase())
+    const values = [
+      host.name,
+      host.group,
+      host.protocol === 'wsl' ? host.distribution : host.host,
+      ...tags,
+    ]
+    return terms.every((term) =>
+      term.startsWith('#')
+        ? tags.includes(term.slice(1))
+        : values.some((value) => value.toLocaleLowerCase().includes(term)),
+    )
+  })
 }
 export function useHosts(onError: (message: string) => void) {
   const [hosts, setHosts] = useState<HostProfile[]>([])

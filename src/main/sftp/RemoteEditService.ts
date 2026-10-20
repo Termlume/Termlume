@@ -23,6 +23,7 @@ type RemoteEditOptions = {
   debounceMs?: number
 }
 type Edit = {
+  sessionId: string
   watcher: FSWatcher
   timer?: ReturnType<typeof setTimeout>
   directory: string
@@ -35,6 +36,8 @@ type Edit = {
 
 export class RemoteEditService {
   private edits = new Map<string, Edit>()
+  private closedSessions = new Set<string>()
+  private closed = false
   private readonly debounceMs: number
   constructor(private options: RemoteEditOptions) {
     this.debounceMs = options.debounceMs ?? 700
@@ -45,6 +48,8 @@ export class RemoteEditService {
     remotePath: string,
     opener: (path: string) => Promise<string> = this.options.open,
   ) {
+    if (this.closed || this.closedSessions.has(sessionId))
+      throw new AppError('canceled', 'Файловый сеанс закрыт')
     const initial = await this.options.stat(sessionId, remotePath)
     if (!initial) throw new AppError('remote-file-missing', 'Удалённый файл не найден')
     await fs.mkdir(this.options.root, { recursive: true })
@@ -54,6 +59,8 @@ export class RemoteEditService {
         localPath = join(directory, basename(fileName))
       await this.options.download(sessionId, remotePath, localPath)
       const baselineFingerprint = await hashFile(localPath)
+      if (this.closed || this.closedSessions.has(sessionId))
+        throw new AppError('canceled', 'Файловый сеанс закрыт')
       const watcher = watch(directory, (_event, changed) => {
         if (changed && changed.toString() !== fileName) return
         const existing = this.edits.get(localPath)
@@ -70,6 +77,7 @@ export class RemoteEditService {
         )
       })
       this.edits.set(localPath, {
+        sessionId,
         watcher,
         directory,
         baseline: initial,
@@ -111,6 +119,7 @@ export class RemoteEditService {
         if (!accepted) return
       }
       const localFingerprint = await hashFile(localPath)
+      if (this.edits.get(localPath) !== edit) return
       await this.options.upload(sessionId, remotePath, localPath, remote)
       edit.baseline = (await this.options.stat(sessionId, remotePath)) ?? remote
       const remoteFingerprint = await this.options.fingerprint(sessionId, remotePath)
@@ -136,9 +145,19 @@ export class RemoteEditService {
     }
   }
 
+  async closeSession(sessionId: string) {
+    this.closedSessions.add(sessionId)
+    const values = [...this.edits].filter(([, edit]) => edit.sessionId === sessionId)
+    for (const [path] of values) this.edits.delete(path)
+    await this.disposeEdits(values.map(([, edit]) => edit))
+  }
   async close() {
+    this.closed = true
     const values = [...this.edits.values()]
     this.edits.clear()
+    await this.disposeEdits(values)
+  }
+  private async disposeEdits(values: Edit[]) {
     for (const edit of values) {
       edit.watcher.close()
       if (edit.timer) clearTimeout(edit.timer)

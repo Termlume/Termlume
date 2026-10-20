@@ -1,0 +1,45 @@
+.host-group-title,
+button.section-heading {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.host-row {
+  flex-wrap: wrap;
+  position: relative;
+}
+.host-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  padding: 0 8px 6px 40px;
+}
+.host-tag {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1px 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+}
+button.host-tag {
+  cursor: pointer;
+}
+.host-editor-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.search-clear {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+}

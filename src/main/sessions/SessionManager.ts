@@ -92,16 +92,21 @@ export class SessionManager {
   get(ownerId: number, id: string) {
     return this.owned(ownerId, id)
   }
+  private terminal(entry: Entry) {
+    if (entry.profile.protocol === 'sftp' || entry.profile.protocol === 'ftp')
+      throw new AppError('terminal-unsupported', 'Файловый сеанс не имеет терминала')
+    return entry
+  }
   write(ownerId: number, id: string, data: string) {
-    const entry = this.owned(ownerId, id)
+    const entry = this.terminal(this.owned(ownerId, id))
     if (!entry.connected) throw new AppError('not-connected', 'Сеанс не подключён')
     entry.adapter.write(data)
   }
   resize(ownerId: number, id: string, cols: number, rows: number) {
-    this.owned(ownerId, id).adapter.resize(cols, rows)
+    this.terminal(this.owned(ownerId, id)).adapter.resize(cols, rows)
   }
   ack(ownerId: number, id: string, sequence: number) {
-    this.owned(ownerId, id).output.ack(sequence)
+    this.terminal(this.owned(ownerId, id)).output.ack(sequence)
   }
   count(ownerId: number) {
     return [...this.entries.values()].filter((entry) => entry.ownerId === ownerId).length

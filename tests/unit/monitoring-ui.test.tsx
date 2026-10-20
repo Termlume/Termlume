@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { it, expect, afterEach } from 'vitest'
 import { createElement } from 'react'
-import { render, renderHook, act, screen, cleanup } from '@testing-library/react'
+import { render, renderHook, act, screen, cleanup, fireEvent } from '@testing-library/react'
 import { useMonitoring } from '../../src/renderer/src/features/monitoring/useMonitoring'
 import { MetricCard } from '../../src/renderer/src/features/monitoring/MetricCard'
 import { CapacityBar } from '../../src/renderer/src/features/monitoring/CapacityBar'
@@ -37,6 +37,47 @@ function apiFixture() {
   }
 }
 const snapshot = { state: 'sampling', sampledAt: 100, history: [] } as MetricSnapshot
+it('bottom metric hover shares a subscription and closes with Escape', () => {
+  const api = apiFixture()
+  const props = {
+    sessionId: 'one',
+    connected: true,
+    profile: { protocol: 'ssh', name: 'Linux' } as HostProfile,
+    placement: 'under-terminal' as const,
+    activeServerLabel: 'Активный сервер: Linux',
+  }
+  const view = render(createElement(MonitoringPanel, props))
+  act(() =>
+    api.emit('one', {
+      ...snapshot,
+      cpuPercent: { status: 'unavailable' },
+      ram: { status: 'unavailable' },
+      swap: { status: 'unavailable' },
+      network: { status: 'unavailable' },
+      disks: { status: 'unavailable' },
+      uptime: { status: 'unavailable' },
+      users: {
+        status: 'ok',
+        value: {
+          sessions: [
+            { user: 'alice', terminal: 'pts/0' },
+            { user: 'alice', terminal: 'pts/1' },
+          ],
+        },
+      },
+    }),
+  )
+  fireEvent.focus(screen.getByRole('button', { name: /Пользователи: alice/ }))
+  expect(screen.getByRole('tooltip')).toBeDefined()
+  expect(screen.getByText('pts/0')).toBeDefined()
+  expect(api.calls).toEqual([{ id: 'one', visible: true }])
+  fireEvent.keyDown(screen.getByRole('tooltip'), {
+    key: 'Escape',
+  })
+  expect(screen.queryByRole('tooltip')).toBeNull()
+  view.rerender(createElement(MonitoringPanel, { ...props, placement: 'sidebar' }))
+  expect(api.calls).toEqual([{ id: 'one', visible: true }])
+})
 it('opensMonitoringForEverySSHSessionAndPausesWhenHidden', () => {
   let calls = 0
   const profile = { protocol: 'ssh', monitoringEnabled: false } as HostProfile

@@ -5,6 +5,7 @@ import { basename, join, relative, resolve, isAbsolute, posix } from 'node:path'
 import { serveSftp } from './sftp-server'
 export async function sshFixture(
   options: {
+    fileOnly?: boolean
     shellGreeting?: string
     hostKey?: string
     publicKey?: Buffer
@@ -24,6 +25,8 @@ export async function sshFixture(
     }).privateKey
   let authentications = 0,
     passwordAuthentications = 0,
+    shellRequests = 0,
+    ptyRequests = 0,
     windowSize = { cols: 80, rows: 24 }
   const clients = new Set<Connection>()
   const execRequests: string[] = []
@@ -270,6 +273,10 @@ export async function sshFixture(
         const session = accept()
         session.on('exec', (accept, reject, info) => {
           execRequests.push(info.command)
+          if (options.fileOnly) {
+            reject()
+            return
+          }
           if (options.scpRoot) {
             void serveScpCommand(accept(), info.command)
             return
@@ -292,6 +299,11 @@ export async function sshFixture(
           else reject()
         })
         session.on('pty', (accept, _reject, info) => {
+          ptyRequests++
+          if (options.fileOnly) {
+            _reject?.()
+            return
+          }
           windowSize = { cols: info.cols, rows: info.rows }
           accept?.()
         })
@@ -299,7 +311,12 @@ export async function sshFixture(
           windowSize = { cols: info.cols, rows: info.rows }
           accept?.()
         })
-        session.on('shell', (accept) => {
+        session.on('shell', (accept, reject) => {
+          shellRequests++
+          if (options.fileOnly) {
+            reject()
+            return
+          }
           const channel = accept()
           channel.write(options.shellGreeting || 'READY\r\n')
           channel.on('data', (data) => channel.write(Buffer.concat([Buffer.from('ECHO:'), data])))
@@ -315,6 +332,12 @@ export async function sshFixture(
     hostKey,
     port,
     execRequests,
+    get shellRequests() {
+      return shellRequests
+    },
+    get ptyRequests() {
+      return ptyRequests
+    },
     get clientCount() {
       return clients.size
     },

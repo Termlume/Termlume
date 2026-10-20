@@ -53,6 +53,15 @@ it('fastPollsEveryThreeSecondsAndDisksEveryThirty', async () => {
   const monitor = new LinuxMonitor(
     async (command) => {
       if (command === commands.os) return 'Linux'
+      if (
+        [
+          commands.users,
+          commands.loginSessions,
+          commands.processSessions,
+          commands.system,
+        ].includes(command)
+      )
+        return ''
       if (command === commands.disks) {
         disks++
         return 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda 100 50 50 50% /'

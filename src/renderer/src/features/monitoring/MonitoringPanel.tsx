@@ -1,3 +1,4 @@
+import { sessionSourceText } from './session-source'
 import { Activity, Clock3, HardDrive, ArrowDown, ArrowUp } from 'lucide-react'
 import type { DiskMetrics, HostProfile, Metric, MemoryUsage } from '../../../../shared/contracts'
 import { useMonitoring } from './useMonitoring'
@@ -5,6 +6,9 @@ import { MetricCard } from './MetricCard'
 import { HistoryChart } from './HistoryChart'
 import { bytes } from './format'
 import { CapacityBar } from './CapacityBar'
+import type { MonitorItem } from '../../../../shared/monitoring-items'
+import { MonitoringBar } from './MonitoringBar'
+import './monitoring.css'
 export { bytes } from './format'
 export function DiskCard({
   disks,
@@ -46,11 +50,19 @@ export function MonitoringPanel({
   profile,
   connected,
   intervalSeconds = 3,
+  placement = 'sidebar',
+  activeServerLabel,
+  visibleItems,
+  onVisibleItemsChange,
 }: {
   sessionId?: string
   profile?: HostProfile
   connected: boolean
   intervalSeconds?: number
+  placement?: 'sidebar' | 'under-terminal'
+  activeServerLabel?: string
+  visibleItems?: MonitorItem[]
+  onVisibleItemsChange?: (items: MonitorItem[]) => void
 }) {
   const enabled = !!profile && profile.protocol === 'ssh' && connected
   const { snapshot, error, retry } = useMonitoring(sessionId, enabled, true),
@@ -69,7 +81,7 @@ export function MonitoringPanel({
         </p>
       </div>
     )
-  return (
+  const content = (
     <div className="monitoring-content">
       <div className="monitor-server">
         <span className="status-dot" />
@@ -151,6 +163,50 @@ export function MonitoringPanel({
         {snapshot?.network.error && <p className="metric-reason">{snapshot.network.error}</p>}
       </section>
       <DiskCard disks={snapshot?.disks} sampledAt={snapshot?.disks.sampledAt} />
+      <section className="metric-card">
+        <div className="metric-label">ПОЛЬЗОВАТЕЛИ И СЕАНСЫ</div>
+        {snapshot?.users?.status === 'ok' ? (
+          <>
+            <strong>
+              {new Set(snapshot.users.value!.sessions.map((s) => s.user)).size} пользователей ·{' '}
+              {snapshot.users.value!.sessions.length} сеансов
+            </strong>
+            <div className="monitor-users-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Пользователь</th>
+                    <th>Терминал</th>
+                    <th>Вход (время сервера)</th>
+                    <th>Адрес</th>
+                    <th>Источник</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshot.users.value!.sessions.map((s, i) => (
+                    <tr key={i}>
+                      <td>{s.user}</td>
+                      <td>
+                        {s.terminal ||
+                          (s.source === 'current-connection' ? 'Текущее SSH-подключение' : '—')}
+                      </td>
+                      <td>{s.loginText || '—'}</td>
+                      <td>{s.from || '—'}</td>
+                      <td>{sessionSourceText(s.source)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <p className="metric-reason">{snapshot?.users?.error || 'Ожидание данных'}</p>
+        )}
+        <p className="metric-reason">
+          Данные who и доступных источников сеансов сервера. Текущее SSH-подключение может быть
+          показано отдельно, если сервер не ведёт учёт входов. Обновление: 30 секунд.
+        </p>
+      </section>
       <div className="uptime">
         <Clock3 size={13} />
         <span>Uptime</span>
@@ -172,6 +228,18 @@ export function MonitoringPanel({
         <br />
         Графики за последние 5 минут
       </p>
+    </div>
+  )
+  if (placement === 'sidebar') return content
+  return (
+    <div className="monitoring-bottom">
+      <MonitoringBar
+        key={sessionId}
+        snapshot={snapshot}
+        server={activeServerLabel || profile.name}
+        visibleItems={visibleItems}
+        onVisibleItemsChange={onVisibleItemsChange}
+      />
     </div>
   )
 }

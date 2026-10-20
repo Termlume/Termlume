@@ -7,7 +7,7 @@ export class LocalFilesService {
   constructor(public root: string) {}
   async validateDroppedFile(path: string, root = this.root) {
     const original = await fs.lstat(path)
-    if (original.isSymbolicLink() || !original.isFile())
+    if (original.isSymbolicLink() || (!original.isFile() && !original.isDirectory()))
       throw new AppError('regular-file-only', 'Перетаскивайте только обычные файлы')
     return ensureLocalPath(root, path)
   }
@@ -16,7 +16,7 @@ export class LocalFilesService {
     if (!isAbsolute(path))
       throw new AppError('unsafe-path', 'Для перетаскивания нужен абсолютный путь файла')
     const original = await fs.lstat(path)
-    if (original.isSymbolicLink() || !original.isFile())
+    if (original.isSymbolicLink() || (!original.isFile() && !original.isDirectory()))
       throw new AppError('regular-file-only', 'Перетаскивайте только обычные файлы')
     const localRoot = await fs.realpath(dirname(path))
     const source = await ensureLocalPath(localRoot, path)

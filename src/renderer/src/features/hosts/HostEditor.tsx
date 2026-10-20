@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { X, Server, KeyRound } from 'lucide-react'
 import type { HostProfile, SshIdentity } from '../../../../shared/contracts'
 import { hostSchema } from '../../../../shared/schemas'
+import './hosts.css'
 import { ru } from '../../app/ru'
 interface Props {
   profile?: HostProfile
@@ -17,19 +18,34 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
   const [name, setName] = useState(profile?.name || ''),
     [host, setHost] = useState(profile && profile.protocol !== 'wsl' ? profile.host : ''),
     [port, setPort] = useState(profile && profile.protocol !== 'wsl' ? profile.port : 22)
-  const [username, setUsername] = useState(profile?.protocol === 'ssh' ? profile.username : 'root'),
-    [auth, setAuth] = useState<'password' | 'key'>(
-      profile?.protocol === 'ssh' ? profile.auth : 'password',
+  const [username, setUsername] = useState(
+      profile &&
+        (profile.protocol === 'ssh' || profile.protocol === 'sftp' || profile.protocol === 'ftp')
+        ? profile.username
+        : 'root',
     ),
-    [keyPath, setKeyPath] = useState(profile?.protocol === 'ssh' ? profile.keyPath || '' : '')
+    [auth, setAuth] = useState<'password' | 'key'>(
+      profile?.protocol === 'ssh' || profile?.protocol === 'sftp' ? profile.auth : 'password',
+    ),
+    [keyPath, setKeyPath] = useState(
+      profile?.protocol === 'ssh' || profile?.protocol === 'sftp' ? profile.keyPath || '' : '',
+    )
   const [method, setMethod] = useState<SshIdentity['method']>(
-    profile?.protocol === 'ssh' ? (profile.auth === 'key' ? 'key' : 'password') : 'password',
+    profile?.protocol === 'ssh' || profile?.protocol === 'sftp'
+      ? profile.auth === 'key'
+        ? 'key'
+        : 'password'
+      : 'password',
   )
   const [identities, setIdentities] = useState<SshIdentity[]>([]),
     [discovered, setDiscovered] = useState<SshIdentity[]>([]),
     [identityId, setIdentityId] = useState(
-      profile?.protocol === 'ssh' ? profile.identityId || '' : '',
+      profile?.protocol === 'ssh' || profile?.protocol === 'sftp' ? profile.identityId || '' : '',
     )
+  const [ftpSecurity, setFtpSecurity] = useState<'none' | 'explicit-tls' | 'implicit-tls'>(
+    profile?.protocol === 'ftp' ? profile.security : 'explicit-tls',
+  )
+  const [tagsInput, setTagsInput] = useState((profile?.tags || []).join(', '))
   const [secret, setSecret] = useState(''),
     [group, setGroup] = useState(profile?.group || ''),
     [favorite, setFavorite] = useState(profile?.favorite || false),
@@ -67,7 +83,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     setBusy(true)
     try {
       let selectedIdentity: SshIdentity | undefined
-      if (protocol === 'ssh' && !quick) {
+      if ((protocol === 'ssh' || protocol === 'sftp') && !quick) {
         const existing = [...identities, ...discovered].find((item) => item.id === identityId)
         selectedIdentity = {
           ...existing,
@@ -83,12 +99,16 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
         id: profile?.id || crypto.randomUUID(),
         name: name || host || distribution,
         group,
+        tags: tagsInput
+          .split(/[,;\s]+/)
+          .map((tag) => tag.trim().replace(/^#+/, ''))
+          .filter(Boolean),
         favorite,
         color,
       }
       const value = hostSchema.parse({
         ...base,
-        ...(protocol === 'ssh'
+        ...(protocol === 'ssh' || protocol === 'sftp'
           ? {
               protocol,
               host,
@@ -98,18 +118,32 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               identityId: selectedIdentity?.id,
               keyPath: method === 'key' ? keyPath : undefined,
               secretRef:
-                profile?.protocol === 'ssh' && profile.auth === auth
+                (profile?.protocol === 'ssh' || profile?.protocol === 'sftp') &&
+                profile.auth === auth
                   ? profile.secretRef
                   : undefined,
               monitoringEnabled: true,
             }
-          : protocol === 'telnet'
-            ? { protocol, host, port, encoding }
-            : { protocol, distribution }),
+          : protocol === 'ftp'
+            ? {
+                protocol,
+                host,
+                port,
+                username,
+                security: ftpSecurity,
+                secretRef: profile?.protocol === 'ftp' ? profile.secretRef : undefined,
+              }
+            : protocol === 'telnet'
+              ? { protocol, host, port, encoding }
+              : { protocol, distribution }),
       })
-      if (protocol === 'ssh' && method === 'key' && !keyPath.trim())
+      if ((protocol === 'ssh' || protocol === 'sftp') && method === 'key' && !keyPath.trim())
         throw new Error('Укажите путь к приватному ключу')
-      if (protocol === 'ssh' && method === 'agent' && !selectedIdentity?.agentEndpoint)
+      if (
+        (protocol === 'ssh' || protocol === 'sftp') &&
+        method === 'agent' &&
+        !selectedIdentity?.agentEndpoint
+      )
         throw new Error('Выберите SSH-агент из списка обнаруженных идентичностей')
       if (selectedIdentity && window.terminalApi?.identities)
         await window.terminalApi.identities.save(selectedIdentity)
@@ -165,11 +199,21 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               onChange={(event) => {
                 const next = event.target.value as HostProfile['protocol']
                 setProtocol(next)
-                setPort(next === 'telnet' ? 23 : 22)
+                setPort(
+                  next === 'telnet'
+                    ? 23
+                    : next === 'ftp'
+                      ? ftpSecurity === 'implicit-tls'
+                        ? 990
+                        : 21
+                      : 22,
+                )
                 setSecret('')
               }}
             >
               <option value="ssh">SSH</option>
+              <option value="sftp">SFTP — файловый клиент</option>
+              <option value="ftp">FTP / FTPS — файловый клиент</option>
               <option value="telnet">Telnet</option>
               <option value="wsl">WSL</option>
             </select>
@@ -209,7 +253,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
             </label>
           </div>
         )}
-        {protocol === 'ssh' && (
+        {(protocol === 'ssh' || protocol === 'sftp') && (
           <>
             {!quick && (
               <label>
@@ -319,6 +363,52 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
             )}
           </>
         )}
+        {protocol === 'ftp' && (
+          <>
+            <label>
+              Защита соединения
+              <select
+                value={ftpSecurity}
+                onChange={(event) => {
+                  const next = event.target.value as typeof ftpSecurity
+                  setFtpSecurity(next)
+                  if (port === 21 || port === 990) setPort(next === 'implicit-tls' ? 990 : 21)
+                }}
+              >
+                <option value="explicit-tls">FTPS — явный TLS</option>
+                <option value="implicit-tls">FTPS — неявный TLS</option>
+                <option value="none">FTP — без шифрования</option>
+              </select>
+            </label>
+            <label>
+              Пользователь
+              <input
+                required
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            {quick && (
+              <label>
+                Пароль
+                <input
+                  type="password"
+                  value={secret}
+                  onChange={(event) => setSecret(event.target.value)}
+                  autoComplete="new-password"
+                  placeholder="Будет запрошен при подключении"
+                />
+              </label>
+            )}
+            {!quick && (
+              <p className="muted">
+                Пароль будет запрошен при подключении и сохранён с защитой Windows после успешного
+                входа.
+              </p>
+            )}
+          </>
+        )}
         {protocol === 'telnet' && (
           <label>
             Кодировка
@@ -351,6 +441,29 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
                   onChange={(event) => setColor(event.target.value)}
                 />
               </label>
+            </div>
+            <label>
+              Теги
+              <input
+                value={tagsInput}
+                onChange={(event) => setTagsInput(event.target.value)}
+                placeholder="prod, database"
+              />
+              <small>Через запятую или пробел</small>
+            </label>
+            <div className="host-editor-tags">
+              {Array.from(
+                new Set(
+                  tagsInput
+                    .split(/[,;\s]+/)
+                    .map((tag) => tag.trim().replace(/^#+/, ''))
+                    .filter(Boolean),
+                ),
+              ).map((tag) => (
+                <span className="host-tag" key={tag}>
+                  #{tag}
+                </span>
+              ))}
             </div>
             <label className="checkbox-label">
               <input

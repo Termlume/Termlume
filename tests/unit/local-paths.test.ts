@@ -68,7 +68,7 @@ it('opensOnlyCompletedRegularFilesInsideTheTransferRoot', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
-it('validatesDroppedFilesAgainstTheChosenRootAndRejectsLinksAndDirectories', async () => {
+it('validatesDroppedFilesAndDirectoriesAgainstTheChosenRootAndRejectsLinks', async () => {
   const root = await mkdtemp(join(tmpdir(), 'terminal-dropped-files-'))
   try {
     const nested = join(root, 'nested'),
@@ -82,7 +82,7 @@ it('validatesDroppedFilesAgainstTheChosenRootAndRejectsLinksAndDirectories', asy
     await symlink(outside, join(nested, 'linked-dir'), 'junction')
     const service = new LocalFilesService(root)
     expect(await service.validateDroppedFile(file)).toBe(await realpath(file))
-    await expect(service.validateDroppedFile(folder)).rejects.toThrow('обычные файлы')
+    expect(await service.validateDroppedFile(folder)).toBe(await realpath(folder))
     await expect(service.validateDroppedFile(join(nested, 'linked-dir'))).rejects.toThrow(
       'обычные файлы',
     )
@@ -100,6 +100,8 @@ it('explicitExternalDropAllowsFilesOutsideThePaneAndKeepsPerFileSourceRoots', as
       desktop = join(root, 'desktop')
     await mkdir(pane)
     await mkdir(desktop)
+    const folder = join(desktop, 'folder')
+    await mkdir(folder)
     const file = join(desktop, 'upload.txt'),
       link = join(desktop, 'linked-folder')
     await writeFile(file, 'desktop file')
@@ -108,6 +110,10 @@ it('explicitExternalDropAllowsFilesOutsideThePaneAndKeepsPerFileSourceRoots', as
     await expect(service.validateDroppedFile(file)).rejects.toThrow()
     expect(await service.validateExternalDroppedFile(file)).toEqual({
       source: await realpath(file),
+      localRoot: await realpath(desktop),
+    })
+    expect(await service.validateExternalDroppedFile(folder)).toEqual({
+      source: await realpath(folder),
       localRoot: await realpath(desktop),
     })
     await expect(service.validateExternalDroppedFile(link)).rejects.toThrow('обычные файлы')

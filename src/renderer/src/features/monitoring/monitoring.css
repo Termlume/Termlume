@@ -1,0 +1,189 @@
+.monitoring-bottom {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.monitoring-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+}
+.monitoring-item {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 29px;
+  max-width: 380px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.monitoring-item:hover,
+.monitoring-item:focus-visible {
+  background: var(--panel-alt, var(--panel));
+  border-color: var(--border);
+}
+.monitoring-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.monitoring-item-label {
+  opacity: 0.7;
+}
+.monitoring-item b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.monitoring-popover {
+  position: fixed;
+  z-index: 10000;
+  width: max-content;
+  min-width: 230px;
+  max-width: min(620px, calc(100vw - 16px));
+  max-height: calc(100vh - 70px);
+  overflow: auto;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 8px 30px #0005;
+  user-select: text;
+  cursor: text;
+}
+.monitoring-popover-heading {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.monitoring-popover p {
+  margin: 7px 0;
+  overflow-wrap: anywhere;
+}
+.monitoring-popover small {
+  opacity: 0.65;
+}
+.monitoring-popover .history-chart {
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  height: 64px;
+}
+.monitor-users-table {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+.monitor-users-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.monitor-users-table th,
+.monitor-users-table td {
+  padding: 6px 9px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+}
+.monitoring-context-menu {
+  position: fixed;
+  z-index: 10001;
+  width: 244px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 30px #0005;
+}
+.monitoring-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 27px;
+  padding: 5px 8px;
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+.monitoring-context-menu button span {
+  width: 12px;
+}
+.monitoring-context-menu button:hover,
+.monitoring-context-menu button:focus-visible {
+  background: var(--accent);
+  color: var(--panel);
+  outline: none;
+}
+.monitoring-context-menu button:disabled {
+  opacity: 0.5;
+}
+.monitoring-context-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 5px;
+}
+.monitoring-context-menu p {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.monitoring-items-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.monitoring-items-settings legend {
+  padding: 0 5px;
+}
+.monitoring-items-settings label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.monitoring-item-label {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+.monitoring-connections-output {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.monitoring-connections-output pre {
+  margin: 6px 0 12px;
+  font:
+    11px/1.6 Consolas,
+    monospace;
+  white-space: pre;
+}

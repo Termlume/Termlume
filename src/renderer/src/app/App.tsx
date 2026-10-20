@@ -18,6 +18,8 @@ import { TerminalView } from '../features/terminal/TerminalView'
 import { AuthDialog } from '../features/sessions/AuthDialog'
 import { HostKeyDialog } from '../features/sessions/HostKeyDialog'
 import { SftpBrowser } from '../features/sftp/Browser'
+import { FileWorkspace } from '../features/sftp/FileWorkspace'
+import { enqueueSelection } from '../features/sftp/enqueue-selection'
 import { Transfers } from '../features/sftp/Transfers'
 import { MonitoringPanel } from '../features/monitoring/MonitoringPanel'
 import { ru } from './ru'
@@ -42,7 +44,8 @@ export default function App() {
     window.addEventListener('resize', resize)
     return () => window.removeEventListener('resize', resize)
   }, [])
-  const sharedDocks = viewportWidth <= 1250 && files && monitor
+  const bottomMonitoring = settings?.monitoringPlacement === 'under-terminal'
+  const sharedDocks = viewportWidth <= 1250 && files && monitor && !bottomMonitoring
   const compactMax = Math.max(
     280,
     Math.min(450, viewportWidth - (settings?.sidebarWidth || 260) - 56 - 260),
@@ -61,6 +64,11 @@ export default function App() {
   const [layoutPreset, setLayoutPreset] = useState<{ revision: number; preset: LayoutPreset }>()
   const [fileRevision, setFileRevision] = useState(0)
   const activeTab = sessions.tabs.find((tab) => tab.id === sessions.active)
+  const fileTabActive =
+    activeTab?.profile.protocol === 'sftp' || activeTab?.profile.protocol === 'ftp'
+  const terminalTabs = sessions.tabs.filter(
+    (tab) => tab.profile.protocol !== 'sftp' && tab.profile.protocol !== 'ftp',
+  )
   const activeHost = activeTab?.profile.protocol === 'local' ? undefined : activeTab?.profile
   const challenge = sessions.challenges[0]
   const answerChallenge = async (
@@ -84,6 +92,10 @@ export default function App() {
   const openHost = (profile: HostProfile) => {
     if (profile.protocol === 'ssh') setMonitor(true)
     void sessions.open(profile)
+  }
+  const savePreference = (patch: Partial<Settings>) => {
+    setSettings((current) => (current ? { ...current, ...patch } : current))
+    void window.terminalApi.settings.update(patch).catch((error) => setError(String(error)))
   }
   const openSettings = () => {
     setAppearance(true)
@@ -199,6 +211,10 @@ export default function App() {
           <>
             <Sidebar
               onNew={newHost}
+              connectionsCollapsed={settings?.connectionsCollapsed}
+              onToggleConnections={() =>
+                savePreference({ connectionsCollapsed: !settings?.connectionsCollapsed })
+              }
               search={search}
               onSearch={setSearch}
               favoriteOnly={favoriteOnly}
@@ -208,6 +224,23 @@ export default function App() {
                 <HostList
                   hosts={filterHosts(catalog.hosts, search, favoriteOnly)}
                   onConnect={openHost}
+                  collapsedGroups={settings?.collapsedHostGroups}
+                  searchActive={Boolean(search.trim())}
+                  onToggleGroup={(group) => {
+                    const current = settings?.collapsedHostGroups || []
+                    savePreference({
+                      collapsedHostGroups: current.includes(group)
+                        ? current.filter((value) => value !== group)
+                        : [...current, group],
+                    })
+                  }}
+                  onTag={(tag) =>
+                    setSearch(
+                      search.trim().toLocaleLowerCase() === `#${tag.toLocaleLowerCase()}`
+                        ? ''
+                        : `#${tag}`,
+                    )
+                  }
                   onEdit={setEditor}
                   onRemove={setRemoveHost}
                   onFavorite={(profile) => {
@@ -277,15 +310,15 @@ export default function App() {
                 }}
               />
             )}
-            <div className={'terminals ' + (!sessions.active ? 'hidden' : '')}>
+            <div className={'terminals ' + (!sessions.active || fileTabActive ? 'hidden' : '')}>
               {settings && (
                 <SplitWorkspace
-                  sessionIds={sessions.tabs.map((tab) => tab.id)}
-                  activeId={sessions.active}
+                  sessionIds={terminalTabs.map((tab) => tab.id)}
+                  activeId={fileTabActive ? undefined : sessions.active}
                   sessionNames={Object.fromEntries(
                     sessions.tabs.map((tab) => [tab.id, tab.profile.name]),
                   )}
-                  sessionOptions={sessions.tabs.map((tab) => ({
+                  sessionOptions={terminalTabs.map((tab) => ({
                     id: tab.id,
                     name: tab.profile.name,
                     protocol: tab.profile.protocol,
@@ -312,6 +345,37 @@ export default function App() {
                 />
               )}
             </div>
+            {sessions.tabs
+              .filter((tab) => tab.profile.protocol === 'sftp' || tab.profile.protocol === 'ftp')
+              .map((tab) => (
+                <div
+                  className="file-tab-container"
+                  key={tab.id}
+                  hidden={tab.id !== sessions.active}
+                >
+                  <FileWorkspace
+                    active={tab.id === sessions.active}
+                    sessionId={tab.id}
+                    state={tab.state}
+                    name={tab.profile.name}
+                    protocol={tab.profile.protocol}
+                  />
+                </div>
+              ))}
+            {monitor && bottomMonitoring && !fileTabActive && (
+              <div className="monitor-under-terminal" aria-label="Мониторинг под терминалом">
+                <MonitoringPanel
+                  placement="under-terminal"
+                  visibleItems={settings?.monitoringItems}
+                  onVisibleItemsChange={(monitoringItems) => savePreference({ monitoringItems })}
+                  activeServerLabel={activeHost?.name}
+                  intervalSeconds={settings?.monitoringIntervalSeconds}
+                  sessionId={activeTab?.id}
+                  profile={activeHost}
+                  connected={activeTab?.state === 'connected'}
+                />
+              </div>
+            )}
             {activeTab && (activeTab.error || activeTab.state === 'disconnected') && (
               <div className="session-error">
                 <span>{activeTab.error || 'Связь потеряна. Подключитесь снова.'}</span>
@@ -326,7 +390,7 @@ export default function App() {
               </div>
             )}
           </div>
-          {files && (
+          {files && !fileTabActive && (
             <aside
               className="file-dock"
               aria-label="Файлы"
@@ -397,30 +461,13 @@ export default function App() {
                 }
                 onTransfer={(direction, sourceDir, targetDir, entries) => {
                   if (!activeTab) return
-                  for (const entry of entries) {
-                    if (entry.type !== 'file') {
-                      setError('Передаются только обычные файлы')
-                      continue
-                    }
-                    const separator = activeTab.profile.protocol !== 'ssh' ? '\\' : undefined,
-                      source =
-                        sourceDir.replace(/[\\/]$/, '') +
-                        (direction === 'upload' ? separator || '\\' : separator || '/') +
-                        entry.name,
-                      target =
-                        targetDir.replace(/[\\/]$/, '') +
-                        (direction === 'upload' ? separator || '/' : separator || '\\') +
-                        entry.name
-                    window.terminalApi.files
-                      .enqueue({
-                        sessionId: activeTab.id,
-                        direction,
-                        source,
-                        target,
-                        overwrite: false,
-                      })
-                      .catch((error) => setError(String(error)))
-                  }
+                  void enqueueSelection(
+                    activeTab.id,
+                    direction,
+                    sourceDir,
+                    targetDir,
+                    entries,
+                  ).catch((error) => setError(String(error)))
                 }}
               />
               <Transfers
@@ -430,7 +477,7 @@ export default function App() {
               />
             </aside>
           )}
-          {monitor && (
+          {monitor && !bottomMonitoring && !fileTabActive && (
             <aside
               className="aux-panel"
               aria-label="Мониторинг"
@@ -562,6 +609,7 @@ export default function App() {
         <AuthDialog
           key={challenge.challenge.id}
           event={challenge}
+          protocol={sessions.tabs.find((tab) => tab.id === challenge.sessionId)?.profile.protocol}
           onAnswer={answerChallenge}
           onCancel={() => {
             sessions.close(challenge.sessionId).catch((error) => setError(String(error)))

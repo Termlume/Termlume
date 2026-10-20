@@ -137,6 +137,8 @@ export function SplitWorkspace({
     ? sessionOptions
     : sessionIds.map((id) => ({ id, name: name(id), protocol: 'ssh' as const }))
   const protocolInfo = {
+    sftp: { label: 'SFTP', Icon: KeyRound },
+    ftp: { label: 'FTP', Icon: Network },
     ssh: { Icon: KeyRound, label: 'SSH' },
     telnet: { Icon: Network, label: 'Telnet' },
     wsl: { Icon: Box, label: 'WSL' },

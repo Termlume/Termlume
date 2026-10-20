@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Plus, Home, TerminalSquare, Star, Monitor, ChevronDown } from 'lucide-react'
+import { X, Plus, Home, TerminalSquare, FolderSync, Star, Monitor, ChevronDown } from 'lucide-react'
 import type { HostProfile, LocalShellProfile } from '../../../../shared/contracts'
 import { shortcutKeys } from '../../app/keyboard-shortcuts'
 import type { ShortcutBindings } from '../../../../shared/keyboard-shortcuts'
@@ -77,7 +77,11 @@ export function Tabs({
       {tabs.map((tab) => (
         <div key={tab.id} className={'session-tab ' + (active === tab.id ? 'selected' : '')}>
           <button className="tab-select" onClick={() => onSelect(tab.id)} title={tab.profile.name}>
-            <TerminalSquare size={14} />
+            {tab.profile.protocol === 'sftp' || tab.profile.protocol === 'ftp' ? (
+              <FolderSync size={14} />
+            ) : (
+              <TerminalSquare size={14} />
+            )}
             <span>{tab.profile.name}</span>
             <i className={'tab-status ' + tab.state} />
           </button>

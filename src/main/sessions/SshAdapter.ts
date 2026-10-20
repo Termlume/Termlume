@@ -19,6 +19,7 @@ interface Options {
   initialSecret?: string
   remember?: (value: string) => Promise<void>
   clearStoredSecret?: () => Promise<void>
+  fileReady?: () => Promise<unknown>
 }
 
 function authenticationError(error: unknown) {
@@ -62,9 +63,10 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
   private rows = 24
   private connected = false
   private closed = false
+  private rememberSecret = true
 
   constructor(
-    readonly profile: Extract<HostProfile, { protocol: 'ssh' }>,
+    readonly profile: Extract<HostProfile, { protocol: 'ssh' | 'sftp' }>,
     private options: Options,
   ) {
     super()
@@ -136,7 +138,8 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
     for (let attempt = 0; ; attempt++) {
       try {
         await this.connectOnce(signal, { method, secret, key, agent })
-        if (secret && this.options.remember) await this.options.remember(secret)
+        if (secret && this.rememberSecret && this.options.remember)
+          await this.options.remember(secret)
         return
       } catch (error) {
         if (!authenticationError(error) || attempt > 0 || method === 'agent') throw error
@@ -167,6 +170,7 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
       signal,
       (event) => this.emit(event),
     )) as AuthAnswer
+    this.rememberSecret = answer.remember
     const secret = type === 'key' ? answer.passphrase : answer.password
     if (!secret) throw new AppError('auth-required', 'Введите секрет для аутентификации')
     return secret
@@ -189,6 +193,16 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
       const abort = () => fail(new AppError('canceled', 'Подключение отменено'))
       const ready = () => {
         if (this.closed || signal.aborted) return abort()
+        if (this.profile.protocol === 'sftp') {
+          this.connected = true
+          void Promise.resolve(this.options.fileReady?.()).then(() => {
+            if (this.closed || signal.aborted) return abort()
+            settled = true
+            signal.removeEventListener('abort', abort)
+            resolve()
+          }, fail)
+          return
+        }
         this.client.shell(
           { term: 'xterm-256color', cols: this.cols, rows: this.rows },
           (error, channel) => {
@@ -298,10 +312,16 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
     })
   }
 
+  private requireTerminal() {
+    if (this.profile.protocol === 'sftp')
+      throw new AppError('terminal-unsupported', 'Файловый сеанс не имеет терминала')
+  }
   write(data: string) {
+    this.requireTerminal()
     this.shell?.write(data)
   }
   resize(cols: number, rows: number) {
+    this.requireTerminal()
     this.cols = cols
     this.rows = rows
     this.shell?.setWindow(rows, cols, 0, 0)

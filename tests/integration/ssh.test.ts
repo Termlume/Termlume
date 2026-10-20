@@ -155,7 +155,7 @@ it('clears a stale stored secret, prompts again, and saves only the successful r
         event.challenge.id,
         event.challenge.kind === 'trust'
           ? { kind: 'trust', accept: true, replaceExisting: false }
-          : { kind: 'auth', password: 'test-password', remember: false },
+          : { kind: 'auth', password: 'test-password', remember: true },
       )
   })
   try {

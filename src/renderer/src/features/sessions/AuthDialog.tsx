@@ -5,7 +5,9 @@ export function AuthDialog({
   event,
   onAnswer,
   onCancel,
+  protocol = 'ssh',
 }: {
+  protocol?: string
   event: Extract<SessionEvent, { type: 'challenge' }>
   onAnswer: (answer: AuthAnswer) => Promise<void>
   onCancel: () => void
@@ -19,7 +21,7 @@ export function AuthDialog({
       <form
         className="modal"
         role="dialog"
-        aria-label="Аутентификация SSH"
+        aria-label={'Аутентификация ' + protocol.toUpperCase()}
         onSubmit={async (form) => {
           form.preventDefault()
           setBusy(true)
@@ -38,7 +40,9 @@ export function AuthDialog({
       >
         <div className="modal-heading">
           <div>
-            <span className="eyebrow">SSH / {event.challenge.host}</span>
+            <span className="eyebrow">
+              {protocol.toUpperCase()} / {event.challenge.host}
+            </span>
             <h2>Аутентификация</h2>
           </div>
           <KeyRound size={25} />

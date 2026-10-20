@@ -1,6 +1,6 @@
 {
   "name": "termlume",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "private": true,
   "description": "SSH, SFTP, Telnet and WSL terminal for Windows",
   "main": "out/main/index.js",
@@ -21,6 +21,7 @@
     "@catppuccin/palette": "1.8.0",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
+    "basic-ftp": "^6.2.3",
     "electron-updater": "6.8.9",
     "iconv-lite": "0.7.3",
     "lucide-react": "1.59.0",

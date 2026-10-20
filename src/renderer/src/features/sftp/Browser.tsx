@@ -18,12 +18,16 @@ export function SftpBrowser({
   refreshToken = 0,
   unsupportedReason,
   localShell,
+  terminalAvailable = true,
+  active = true,
 }: {
   sessionId?: string
   mode?: 'two-panel' | 'remote-only'
   refreshToken?: number
   unsupportedReason?: string
   localShell?: 'powershell' | 'cmd'
+  active?: boolean
+  terminalAvailable?: boolean
   onTransfer?: (
     direction: 'upload' | 'download',
     source: string,
@@ -59,6 +63,14 @@ export function SftpBrowser({
   const [draggingOver, setDraggingOver] = useState(false)
   const [context, setContext] = useState<{ side: Side; entry: FileEntry; x: number; y: number }>()
   const [properties, setProperties] = useState<{ side: Side; entry: FileEntry }>()
+  useEffect(() => {
+    if (!active) {
+      setContext(undefined)
+      setAction(undefined)
+      setProperties(undefined)
+      setDraggingOver(false)
+    }
+  }, [active])
   const [activities, setActivities] = useState<Record<string, FileActivity>>({})
   const pendingOpens = useRef(new Set<string>())
   const activeSession = useRef(sessionId)
@@ -315,7 +327,7 @@ export function SftpBrowser({
     event.preventDefault()
     setDraggingOver(false)
     if (!sessionId) {
-      setTransferError(unsupportedReason || 'Подключите SSH- или WSL-сеанс для загрузки файлов')
+      setTransferError(unsupportedReason || 'Откройте подключение с поддержкой передачи файлов')
       return
     }
     const files = Array.from(event.dataTransfer.files),
@@ -353,7 +365,7 @@ export function SftpBrowser({
       .catch((error) => setTransferError(String(error)))
   }
   async function pastePath(side: Side, entry: FileEntry) {
-    if (!sessionId) return
+    if (!sessionId || !terminalAvailable) return
     const fullPath = path(side, entry.name)
     if (/[\x00-\x1f\x7f]/.test(fullPath)) throw new Error('Путь содержит управляющие символы')
     if (accessMode === 'local' && !localShell)
@@ -488,7 +500,7 @@ export function SftpBrowser({
               )}
               {side === 'remote' && !sessionId ? (
                 <p className="panel-empty">
-                  {unsupportedReason || 'Откройте SSH- или WSL-сеанс для работы с файлами'}
+                  {unsupportedReason || 'Откройте подключение с поддержкой передачи файлов'}
                 </p>
               ) : (
                 <FileList
@@ -560,7 +572,7 @@ export function SftpBrowser({
                 ]
               : []),
             ...(context.side === 'remote' &&
-            context.entry.type === 'file' &&
+            (context.entry.type === 'file' || context.entry.type === 'directory') &&
             !context.entry.isSymlink &&
             onTransfer &&
             remoteCapabilities?.download !== false
@@ -584,7 +596,7 @@ export function SftpBrowser({
               ? [{ label: 'Удалить', run: () => begin(context.side, 'remove', context.entry) }]
               : []),
             { label: 'Копировать полный путь', run: () => copyPath(context.side, context.entry) },
-            ...(sessionId && (accessMode !== 'local' || localShell)
+            ...(terminalAvailable && sessionId && (accessMode !== 'local' || localShell)
               ? [
                   {
                     label: 'Вставить путь в терминал',

@@ -32,6 +32,8 @@ import type { Request } from '../shared/schemas'
 import { AppError } from '../shared/errors'
 import { SessionManager } from './sessions/SessionManager'
 import { WslAdapter } from './sessions/WslAdapter'
+import { FtpAdapter } from './sessions/FtpAdapter'
+import { FtpFileAccess } from './sftp/FtpFileAccess'
 import { SshAdapter } from './sessions/SshAdapter'
 import { SshChallenges } from './sessions/SshChallenges'
 import { TelnetAdapter } from './sessions/TelnetAdapter'
@@ -46,6 +48,9 @@ import type {
   FileDragRequest,
   FileActivity,
 } from '../shared/contracts'
+function isRemoteFileProtocol(protocol: string) {
+  return protocol === 'ssh' || protocol === 'sftp' || protocol === 'ftp'
+}
 export class Backend {
   readonly hosts: HostRepository
   readonly settings: SettingsRepository
@@ -99,9 +104,13 @@ export class Backend {
         this.temporarySecrets.delete(profile.id)
         if (profile.protocol === 'wsl') return new WslAdapter(profile)
         if (profile.protocol === 'telnet') return new TelnetAdapter(profile)
-        if (profile.protocol === 'ssh') {
+        if (
+          profile.protocol === 'ssh' ||
+          profile.protocol === 'sftp' ||
+          profile.protocol === 'ftp'
+        ) {
           const identity =
-            !temporary && profile.identityId
+            !temporary && 'identityId' in profile && profile.identityId
               ? (await this.identities.list()).find((value) => value.id === profile.identityId)
               : undefined
           const reference = identity?.secretRef || profile.secretRef || identity?.id || profile.id
@@ -113,7 +122,12 @@ export class Backend {
                   if (identity) await this.identities.save({ ...identity, secretRef: reference })
                   else {
                     const current = (await this.hosts.list()).find((host) => host.id === profile.id)
-                    if (current?.protocol === 'ssh')
+                    if (
+                      current &&
+                      (current.protocol === 'ssh' ||
+                        current.protocol === 'sftp' ||
+                        current.protocol === 'ftp')
+                    )
                       await this.hosts.save({ ...current, secretRef: reference })
                   }
                 } catch {
@@ -129,13 +143,18 @@ export class Backend {
               await this.identities.save(metadata)
             } else {
               const current = (await this.hosts.list()).find((host) => host.id === profile.id)
-              if (current?.protocol === 'ssh') {
+              if (
+                current &&
+                (current.protocol === 'ssh' ||
+                  current.protocol === 'sftp' ||
+                  current.protocol === 'ftp')
+              ) {
                 const { secretRef: _secretRef, ...metadata } = current
                 await this.hosts.save(metadata)
               }
             }
           }
-          return new SshAdapter(profile, {
+          const options = {
             knownHosts: this.knownHosts,
             vault: this.vault,
             challenges: this.challenges,
@@ -145,7 +164,11 @@ export class Backend {
             initialSecret,
             remember,
             clearStoredSecret,
-          })
+            fileReady: profile.protocol === 'sftp' ? () => this.sftp.get(id) : undefined,
+          }
+          return profile.protocol === 'ftp'
+            ? new FtpAdapter(profile, options)
+            : new SshAdapter(profile, options)
         }
         throw new AppError('protocol-unavailable', 'Протокол недоступен')
       },
@@ -158,6 +181,7 @@ export class Backend {
           void this.transfers?.closeSession(event.sessionId)
           void this.sftp?.close(event.sessionId)
           this.remoteFiles?.close(event.sessionId)
+          void this.remoteEdits?.closeSession(event.sessionId).catch(() => {})
         }
         emit(event)
       },
@@ -166,6 +190,16 @@ export class Backend {
     this.remoteFiles = new RemoteFileAccess(
       this.sftp,
       new ScpService((id) => this.ssh(id).getClient()),
+      (id) => this.sessions.get(this.ownerId, id).profile.protocol === 'sftp',
+      {
+        matches: (id) => this.sessions.get(this.ownerId, id).profile.protocol === 'ftp',
+        provider: new FtpFileAccess((id) => {
+          const adapter = this.sessions.get(this.ownerId, id).adapter
+          if (!(adapter instanceof FtpAdapter))
+            throw new AppError('ftp-required', 'Нужно FTP-подключение')
+          return adapter
+        }),
+      },
     )
     this.transfers = new TransferQueue(async (request, signal, progress) => {
       const profile = this.sessions.get(this.ownerId, request.sessionId).profile
@@ -178,7 +212,7 @@ export class Backend {
         )
       if (profile.protocol === 'local')
         return this.wslFiles.transfer(this.localFiles.root, request, signal, progress)
-      if (profile.protocol !== 'ssh')
+      if (!['ssh', 'sftp', 'ftp'].includes(profile.protocol))
         throw new AppError('files-unsupported', 'Для Telnet передача файлов не поддерживается')
       return this.remoteFiles.transfer(request, signal, progress)
     })
@@ -351,8 +385,10 @@ export class Backend {
     const session = this.sessions.get(this.ownerId, id)
     if (!session.connected) throw new AppError('not-connected', 'Сеанс не подключён')
     const profile = session.profile
-    if (profile.protocol === 'ssh') this.ssh(id).getClient()
-    else if (profile.protocol !== 'wsl' && profile.protocol !== 'local')
+    if (profile.protocol === 'ssh' || profile.protocol === 'sftp') this.ssh(id).getClient()
+    else if (profile.protocol === 'ftp') {
+      /* ownership and connection checked above */
+    } else if (profile.protocol !== 'wsl' && profile.protocol !== 'local')
       throw new AppError(
         'files-unsupported',
         'Telnet не поддерживает передачу файлов: у него нет файлового канала.',
@@ -363,9 +399,11 @@ export class Backend {
     this.ensureActive()
     const profile = this.requireFileSession(request.sessionId)
     const name = validateFileName(
-      profile.protocol === 'ssh' ? posix.basename(request.path) : win32.basename(request.path),
+      isRemoteFileProtocol(profile.protocol)
+        ? posix.basename(request.path)
+        : win32.basename(request.path),
     )
-    if (profile.protocol === 'ssh') {
+    if (isRemoteFileProtocol(profile.protocol)) {
       const stat = await this.remoteFiles.lstat(request.sessionId, request.path)
       if (!stat?.isFile() || stat.isSymbolicLink())
         throw new AppError('regular-file-only', 'Переносить можно только обычные файлы')
@@ -477,7 +515,7 @@ export class Backend {
         })
         try {
           const profile = this.requireFileSession(request.sessionId)
-          if (profile.protocol !== 'ssh') {
+          if (profile.protocol === 'wsl' || profile.protocol === 'local') {
             const root =
               profile.protocol === 'wsl'
                 ? await wslRoot(profile.distribution)
@@ -508,7 +546,7 @@ export class Backend {
       case 'files.enqueueDropped': {
         const profile = this.requireFileSession(request.sessionId),
           remoteDirectory =
-            profile.protocol !== 'ssh'
+            profile.protocol === 'wsl' || profile.protocol === 'local'
               ? await ensureLocalPath(
                   profile.protocol === 'wsl'
                     ? await wslRoot(profile.distribution)
@@ -516,7 +554,7 @@ export class Backend {
                   request.targetDirectory,
                 )
               : await this.remoteFiles.realpath(request.sessionId, request.targetDirectory)
-        if (profile.protocol === 'ssh') {
+        if (isRemoteFileProtocol(profile.protocol)) {
           const remoteStat = await this.remoteFiles.stat(request.sessionId, remoteDirectory)
           if (!remoteStat?.isDirectory())
             throw new AppError('remote-directory-required', 'Перетащите файлы в удалённую папку')
@@ -530,7 +568,7 @@ export class Backend {
           direction: 'upload' as const,
           source,
           target:
-            profile.protocol !== 'ssh'
+            profile.protocol === 'wsl' || profile.protocol === 'local'
               ? win32.join(remoteDirectory, validateFileName(basename(source)))
               : posix.join(remoteDirectory, validateFileName(basename(source))),
           overwrite: false,
@@ -539,7 +577,7 @@ export class Backend {
         return this.transfers.enqueueMany(requests)
       }
       case 'files.stageDrag':
-        if (this.requireFileSession(request.sessionId).protocol !== 'ssh')
+        if (!isRemoteFileProtocol(this.requireFileSession(request.sessionId).protocol))
           throw new AppError('files-unsupported', 'Перетаскивание доступно для SSH-файлов')
         return this.externalDrag.prepare(request.sessionId, request.path)
       case 'files.cancel':
@@ -674,16 +712,19 @@ export class Backend {
             (profile) => profile.id === request.profile.id,
           )
           this.ensureActive()
-          const clean =
-            request.profile.protocol === 'ssh'
-              ? {
-                  ...request.profile,
-                  secretRef:
-                    previous?.protocol === 'ssh' && previous.auth === request.profile.auth
-                      ? previous.secretRef
-                      : undefined,
-                }
-              : request.profile
+          const clean = ['ssh', 'sftp', 'ftp'].includes(request.profile.protocol)
+            ? {
+                ...request.profile,
+                secretRef:
+                  previous &&
+                  previous.protocol === request.profile.protocol &&
+                  'secretRef' in previous &&
+                  (!('auth' in previous) ||
+                    ('auth' in request.profile && previous.auth === request.profile.auth))
+                    ? previous.secretRef
+                    : undefined,
+              }
+            : request.profile
           return this.hosts.save(clean)
         })
       }
@@ -691,7 +732,7 @@ export class Backend {
         return this.withStorageMutation(async () => {
           const profile = (await this.hosts.list()).find((host) => host.id === request.id)
           this.ensureActive()
-          if (profile?.protocol === 'ssh' && profile.secretRef)
+          if (profile && 'secretRef' in profile && profile.secretRef)
             await this.vault.remove(profile.secretRef)
           return this.hosts.remove(request.id)
         })
@@ -700,7 +741,12 @@ export class Backend {
         return this.withStorageMutation(async () => {
           const profile = (await this.hosts.list()).find((host) => host.id === request.id)
           this.ensureActive()
-          if (!profile || profile.protocol !== 'ssh')
+          if (
+            !profile ||
+            (profile.protocol !== 'ssh' &&
+              profile.protocol !== 'sftp' &&
+              profile.protocol !== 'ftp')
+          )
             throw new AppError('invalid-profile', 'Не найдено SSH-подключение')
           await this.vault.set(profile.id, request.value)
           return this.hosts.save({ ...profile, secretRef: profile.id })

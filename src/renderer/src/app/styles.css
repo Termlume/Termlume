@@ -2375,3 +2375,50 @@ button:active:not(:disabled) {
   height: 5px;
   accent-color: var(--accent);
 }
+
+.file-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+.file-workspace-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.file-workspace-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.file-workspace-heading > span:last-child {
+  margin-left: auto;
+}
+.file-tab-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.file-tab-container[hidden] {
+  display: none;
+}
+.file-workspace > .sftp-browser {
+  flex: 1;
+  min-height: 0;
+}
+.file-workspace .sftp-columns {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.monitor-under-terminal {
+  min-width: 0;
+  flex-shrink: 0;
+  position: relative;
+}
