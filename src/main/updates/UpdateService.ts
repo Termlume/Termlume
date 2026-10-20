@@ -17,6 +17,11 @@ type Driver = Pick<
   | 'quitAndInstall'
 >
 const prerelease = (version: string) => version.split('+')[0].includes('-')
+const latestLookupFailed = (error: Error & { code?: string }) =>
+  error.code === 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND' ||
+  (error.code === 'ERR_UPDATER_INVALID_RELEASE_FEED' &&
+    error.message.split('XML:')[0].includes('Unable to find latest version on GitHub'))
+
 export class UpdateService {
   private value: UpdateStatus
   private active?: 'checking' | 'downloading' | 'installing' | 'channel'
@@ -123,7 +128,7 @@ export class UpdateService {
     // Only a 404 from /latest means that a first stable release is still absent.
     const noStableRelease =
       failure.code === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' ||
-      (failure.code === 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND' &&
+      (latestLookupFailed(failure) &&
         (failure.statusCode === 404 ||
           failure.cause?.statusCode === 404 ||
           /(?:HttpError:\s*404\b|\b404\s+(?:Not Found|\"method:))/i.test(failure.message)))
@@ -195,7 +200,7 @@ export class UpdateService {
       // Confirm absence through the public API rather than treating 406 as no updates.
       if (
         this.value.channel === 'stable' &&
-        (failure as Error & { code?: string }).code === 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND' &&
+        latestLookupFailed(failure) &&
         /\b406\b/.test(failure.message)
       ) {
         try {

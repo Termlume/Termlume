@@ -199,3 +199,33 @@ it('confirms absent stable release through API when GitHub latest endpoint retur
     service.dispose()
   }
 })
+
+it('handles the real GitHubProvider wrapper around the missing stable endpoint', async () => {
+  const { driver, service } = setup()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ status: 404 })),
+  )
+  try {
+    driver.checkForUpdates.mockImplementation(async () => {
+      const error = Object.assign(
+        new Error(
+          'Cannot parse releases feed: Error: Unable to find latest version on GitHub (https://github.com/Termlume/Termlume/releases/latest), please ensure a production release exists: HttpError: 406 Not Acceptable,\nXML:\n<feed/>',
+        ),
+        { code: 'ERR_UPDATER_INVALID_RELEASE_FEED' },
+      )
+      driver.emit('error', error)
+      throw error
+    })
+    expect(await service.check()).toMatchObject({
+      state: 'not-available',
+      message: 'Стабильных выпусков пока нет',
+      error: undefined,
+    })
+    vi.mocked(fetch).mockResolvedValue({ status: 403 } as Response)
+    expect((await service.check()).state).toBe('error')
+  } finally {
+    vi.unstubAllGlobals()
+    service.dispose()
+  }
+})

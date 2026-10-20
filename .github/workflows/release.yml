@@ -58,5 +58,10 @@ jobs:
           $assets += $checksums
           $options = @('release', 'create', $env:RELEASE_TAG, '--title', "Termlume $env:RELEASE_TAG", '--generate-notes', '--verify-tag')
           if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' }
-          & gh @options @assets
+          & gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            & gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            & gh @options @assets
+          }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
