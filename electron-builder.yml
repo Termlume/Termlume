@@ -6,7 +6,6 @@
   'asar': true,
   'asarUnpack': ['node_modules/node-pty/**/*'],
   'npmRebuild': false,
-  'electronDist': 'node_modules/electron/dist',
   'artifactName': 'Termlume-Setup-${version}-${arch}.${ext}',
   'compression': 'normal',
   'publish':
