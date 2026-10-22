@@ -5,7 +5,8 @@ import type { Settings } from '../../../../shared/contracts'
 import { terminalTheme } from '../../themes/apply-theme'
 import type { SessionOutputRouter } from './SessionOutputRouter'
 import { SmoothInputQueue } from './SmoothInputQueue'
-import { TerminalOutputHighlighter } from './TerminalOutputHighlighter'
+import { AsyncOutputHighlighter } from './AsyncOutputHighlighter'
+import { DEFAULT_HIGHLIGHT_RULES, type HighlightRule } from '../../../../shared/highlight-rules'
 import { MacroInput, filterMacros, isCommandPrompt } from './MacroInput'
 import type { TerminalMacro } from '../../../../shared/contracts'
 import './macros.css'
@@ -14,12 +15,14 @@ export function TerminalView({
   sessionId,
   active,
   settings,
+  highlightRules,
   output,
   onFontSizeChange,
 }: {
   sessionId: string
   active: boolean
   settings: Settings
+  highlightRules?: HighlightRule[]
   output: SessionOutputRouter
   onFontSizeChange?: (fontSize: number) => void
 }) {
@@ -30,6 +33,11 @@ export function TerminalView({
     settingsRef = useRef(settings),
     fontSizeHandlerRef = useRef(onFontSizeChange),
     inputQueue = useRef<SmoothInputQueue | null>(null)
+  const highlighterRef = useRef<AsyncOutputHighlighter | null>(null)
+  const rules = highlightRules ?? settings.highlightRules ?? DEFAULT_HIGHLIGHT_RULES
+  useEffect(() => {
+    highlighterRef.current?.configure(rules)
+  }, [rules])
   activeRef.current = active
   settingsRef.current = settings
   fontSizeHandlerRef.current = onFontSizeChange
@@ -59,7 +67,8 @@ export function TerminalView({
     inputQueue.current = new SmoothInputQueue((data) => {
       if (activeRef.current) window.terminalApi.sessions.write(sessionId, data).catch(() => {})
     }, settings.smoothInput)
-    const highlighter = new TerminalOutputHighlighter()
+    const highlighter = new AsyncOutputHighlighter((text, done) => term.write(text, done), rules)
+    highlighterRef.current = highlighter
     const fitVisible = () => {
       if (element.current?.clientWidth && element.current?.clientHeight) {
         fitAddon.fit()
@@ -70,12 +79,9 @@ export function TerminalView({
     const observer = new ResizeObserver(fitVisible)
     observer.observe(element.current!)
     const off = output.subscribe(sessionId, (bytes, sequence) =>
-      highlighter.write(bytes, (displayBytes, done) =>
-        term.write(displayBytes, () => {
-          done()
-          window.terminalApi.sessions.ack(sessionId, sequence).catch(() => {})
-        }),
-      ),
+      highlighter.write(bytes, () => {
+        window.terminalApi.sessions.ack(sessionId, sequence).catch(() => {})
+      }),
     )
     const macroInput = new MacroInput()
     let highlighted = 0
@@ -209,6 +215,8 @@ export function TerminalView({
     })
     fitVisible()
     return () => {
+      highlighter.dispose()
+      highlighterRef.current = null
       observer.disconnect()
       off()
       input.dispose()

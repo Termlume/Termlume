@@ -46,7 +46,7 @@ it('removingLocalSymlinkLeavesItsTargetIntact', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
-it('opensOnlyCompletedRegularFilesInsideTheTransferRoot', async () => {
+it('opensCompletedFilesAndFoldersInsideTheTransferRoot', async () => {
   const root = await mkdtemp(join(tmpdir(), 'terminal-open-completed-'))
   try {
     const file = join(root, 'report.txt')
@@ -57,6 +57,10 @@ it('opensOnlyCompletedRegularFilesInsideTheTransferRoot', async () => {
       service.openCompleted(file, root, async (path) => void opened.push(path)),
     ).resolves.toBeUndefined()
     expect(opened).toEqual([await realpath(file)])
+    const folder = join(root, 'downloaded-folder')
+    await mkdir(folder)
+    await service.openCompleted(folder, root, async (path) => void opened.push(path))
+    expect(opened.at(-1)).toBe(await realpath(folder))
     await expect(
       service.openCompleted(join(root, '..', 'outside.txt'), root, async () => {}),
     ).rejects.toThrow()

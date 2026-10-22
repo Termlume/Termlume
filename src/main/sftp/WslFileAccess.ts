@@ -9,6 +9,8 @@ import { AppError } from '../../shared/errors'
 import type { TransferJob } from './TransferQueue'
 import { LocalFilesService } from './LocalFilesService'
 import { ensureLocalPath, safeDownloadTarget } from './local-paths'
+import { withCollisions } from './collisions'
+import { TransferConflict } from './transfer-file'
 
 export type WslCommandRunner = (distribution: string, args: string[]) => Promise<string>
 const executeFile = promisify(execFile)
@@ -147,6 +149,57 @@ export class WslFileAccess {
     job: TransferJob,
     signal: AbortSignal,
     progress: (done: number, total: number) => void,
+    depth = 0,
+  ): Promise<void> {
+    signal.throwIfAborted()
+    if (depth > 128) throw new AppError('directory-limit', 'Превышена глубина папок')
+    const sourceRoot = job.direction === 'upload' ? job.localRoot : root
+    if ((await fs.lstat(job.source)).isSymbolicLink())
+      throw new AppError('unsafe-link', 'Передача символических ссылок не поддерживается')
+    const source = await ensureLocalPath(sourceRoot, job.source)
+    const stat = await fs.lstat(source)
+    if (stat.isSymbolicLink())
+      throw new AppError('unsafe-link', 'Передача символических ссылок не поддерживается')
+    if (stat.isDirectory()) {
+      const targetRoot = job.direction === 'upload' ? root : job.localRoot
+      const target = await safeDownloadTarget(targetRoot, dirname(job.target), basename(job.target))
+      const child = relative(source, target)
+      if (child === '' || (child !== '..' && !child.startsWith('..' + sep) && !isAbsolute(child)))
+        throw new AppError('move-descendant', 'Нельзя копировать папку в неё саму или её подпапку')
+      await fs.mkdir(target).catch(async (error) => {
+        if (error.code !== 'EEXIST') throw error
+        const existing = await fs.lstat(target)
+        if (!existing.isDirectory() || existing.isSymbolicLink())
+          throw new AppError('invalid-destination', 'Назначение не является обычной папкой')
+      })
+      let done = 0
+      for (const name of await fs.readdir(source)) {
+        signal.throwIfAborted()
+        let childDone = 0
+        await this.transfer(
+          root,
+          { ...job, source: join(source, name), target: join(target, name) },
+          signal,
+          (bytes, total) => {
+            childDone = bytes
+            progress(done + bytes, done + total)
+          },
+          depth + 1,
+        )
+        done += childDone
+      }
+      progress(done, done)
+      return
+    }
+    return withCollisions(job, signal, (request) =>
+      this.transferSingle(root, request, signal, progress),
+    )
+  }
+  private async transferSingle(
+    root: string,
+    job: TransferJob,
+    signal: AbortSignal,
+    progress: (done: number, total: number) => void,
   ): Promise<void> {
     signal.throwIfAborted()
     const source =
@@ -164,12 +217,24 @@ export class WslFileAccess {
     const inputStat = await fs.stat(source)
     if (!inputStat.isFile())
       throw new AppError('regular-file-only', 'Передавать можно только обычные файлы')
-    try {
-      await fs.lstat(target)
-      if (!job.overwrite) throw new AppError('exists', 'Файл назначения уже существует')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    const validateDestination = async () => {
+      try {
+        const stat = await fs.lstat(target)
+        if (!stat.isFile() || stat.isSymbolicLink())
+          throw new AppError('invalid-destination', 'Назначение не является обычным файлом')
+        const version = { size: stat.size, modifiedAt: stat.mtimeMs }
+        if (!job.overwrite) throw new TransferConflict('exists', version)
+        if (
+          !job.targetVersion ||
+          job.targetVersion.size !== version.size ||
+          job.targetVersion.modifiedAt !== version.modifiedAt
+        )
+          throw new TransferConflict('destination-changed', version)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
     }
+    await validateDestination()
     const temp = join(dirname(target), `.${basename(target)}.${randomUUID()}.termlume-part`)
     let done = 0
     let abortTransfer: (() => void) | undefined
@@ -192,6 +257,7 @@ export class WslFileAccess {
         input.pipe(output)
       })
       signal.throwIfAborted()
+      await validateDestination()
       if (job.overwrite) await fs.rename(temp, target)
       else {
         try {

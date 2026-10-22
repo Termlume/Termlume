@@ -102,7 +102,7 @@ export class WindowsDropTransfer {
   }
 
   async drag(
-    file: { name: string; sourceWindow?: string },
+    file: { name: string; sourceWindow?: string; entries?: { name: string; directory: boolean }[] },
     materialize: (signal: AbortSignal) => Promise<string>,
   ): Promise<boolean> {
     if (!file.name || /[<>:"/\\|?*\x00-\x1f]/.test(file.name))
@@ -123,8 +123,13 @@ export class WindowsDropTransfer {
       }, 7200000)
       this.active = { id, resolve, reject, timer, materialize, abort: new AbortController() }
       this.child!.stdin.write(
-        JSON.stringify({ type: 'drag', id, name: file.name, sourceWindow: file.sourceWindow }) +
-          '\n',
+        JSON.stringify({
+          type: 'drag',
+          id,
+          name: file.name,
+          entries: file.entries,
+          sourceWindow: file.sourceWindow,
+        }) + '\n',
       )
     })
   }

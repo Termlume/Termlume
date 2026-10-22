@@ -31,8 +31,7 @@ export function FileList({
   useEffect(() => {
     const leave = (event: DragEvent) => {
       const entry = dragging.current
-      if (!entry || !onBeginExternalDrag || entry.type !== 'file' || event.relatedTarget != null)
-        return
+      if (!entry || !onBeginExternalDrag || entry.isSymlink || event.relatedTarget != null) return
       if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
       // Keep the entire in-window gesture in Chromium. Native OLE is only for drag-out.
       if (
@@ -205,7 +204,15 @@ export function FileList({
           </tr>
         </thead>
         <tbody>
-          <tr className="parent-row" onDoubleClick={onParent} onClick={onParent}>
+          <tr
+            className={'parent-row ' + (selected.includes('..') ? 'selected' : '')}
+            onDoubleClick={onParent}
+            onClick={() => onSelect('..', false)}
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onParent()
+            }}
+          >
             <td>
               <CornerLeftUp size={13} />
               ..

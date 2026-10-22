@@ -78,10 +78,14 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
     return this.client
   }
 
+  get cwdUsername() {
+    return this.options.identity?.username || this.profile.username
+  }
+
   async connect(signal: AbortSignal): Promise<void> {
-    const identity = this.options.identity
+    const identity: SshIdentity | undefined = this.options.identity || (this.profile.agentEndpoint ? { id: this.profile.id, name: this.profile.name, method: 'agent', agentEndpoint: this.profile.agentEndpoint, agentFingerprint: this.profile.agentFingerprint } : undefined)
     const method = identity?.method || this.profile.auth
-    const secretRef = identity?.secretRef || this.profile.secretRef
+    const secretRef = identity ? identity.secretRef : this.profile.secretRef
     let secret = this.options.initialSecret
     this.options.initialSecret = undefined
     let storedSecret = false
@@ -262,7 +266,7 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
       this.client.connect({
         host: this.profile.host.replace(/^\[|\]$/g, ''),
         port: this.profile.port,
-        username: this.profile.username,
+        username: this.options.identity?.username || this.profile.username,
         password: auth.method === 'password' ? auth.secret : undefined,
         privateKey: auth.method === 'key' ? auth.key : undefined,
         passphrase: auth.method === 'key' ? auth.secret : undefined,

@@ -15,6 +15,7 @@ export interface SessionTab {
 }
 export function useSessions(onError: (message: string) => void) {
   const [tabs, setTabs] = useState<SessionTab[]>([]),
+    [directories, setDirectories] = useState<Record<string, string>>({}),
     [active, setActive] = useState<string>(),
     [challenges, setChallenges] = useState<Extract<SessionEvent, { type: 'challenge' }>[]>([])
   const output = useRef(new SessionOutputRouter()).current,
@@ -23,6 +24,14 @@ export function useSessions(onError: (message: string) => void) {
   useEffect(
     () =>
       window.terminalApi.sessions.onEvent((event) => {
+        if (event.type === 'cwd') {
+          setDirectories((current) =>
+            current[event.sessionId] === event.path
+              ? current
+              : { ...current, [event.sessionId]: event.path },
+          )
+          return
+        }
         if (event.type === 'data') {
           output.push(event.sessionId, event.data, event.sequence)
           return
@@ -51,6 +60,11 @@ export function useSessions(onError: (message: string) => void) {
             event,
           ])
         if (event.type === 'closed') {
+          setDirectories((current) => {
+            const next = { ...current }
+            delete next[event.sessionId]
+            return next
+          })
           closedSessions.current.add(event.sessionId)
           setChallenges((current) => current.filter((item) => item.sessionId !== event.sessionId))
           setTabs((current) => {
@@ -107,9 +121,15 @@ export function useSessions(onError: (message: string) => void) {
     })
     setChallenges((current) => current.filter((item) => item.sessionId !== id))
     output.remove(id)
+    setDirectories((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
     states.current.delete(id)
   }
   return {
+    directories,
     tabs,
     active,
     setActive,

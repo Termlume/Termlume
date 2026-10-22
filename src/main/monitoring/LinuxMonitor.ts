@@ -1,5 +1,6 @@
 import type { Metric, MetricSnapshot, MetricPoint, DiskMetrics } from '../../shared/contracts'
 import { commands, sections } from './commands'
+import { parseTemperatures } from './temperatures'
 import {
   parseCpu,
   cpuUsage,
@@ -41,6 +42,9 @@ export class LinuxMonitor {
   private usersAt = -Infinity
   private users: NonNullable<MetricSnapshot['users']> = unavailable('Ожидание измерения')
   private disks: Metric<DiskMetrics[]> = unavailable('Ожидание измерения')
+  private temperatures: NonNullable<MetricSnapshot['temperatures']> =
+    unavailable('Ожидание измерения')
+  private temperaturesAt = -Infinity
   private history: MetricPoint[] = []
   private listeners = new Set<(snapshot: MetricSnapshot) => void>()
   private now: () => number
@@ -88,6 +92,7 @@ export class LinuxMonitor {
     this.history = []
     this.diskAt = -Infinity
     this.usersAt = -Infinity
+    this.temperaturesAt = -Infinity
     this.users = unavailable('Ожидание измерения')
     this.failures = 0
     void this.poll(this.generation)
@@ -126,6 +131,7 @@ export class LinuxMonitor {
       uptime: unavailable(message),
       disks: unavailable(message),
       users: unavailable(message),
+      temperatures: unavailable(message),
       history: [],
     }
   }
@@ -227,6 +233,21 @@ export class LinuxMonitor {
         ? value(memory.swap)
         : unavailable<NonNullable<MetricSnapshot['swap']['value']>>('Swap недоступен')
       const uptime = attempt(() => parseUptime(raw.UPTIME || ''))
+      if (at - this.temperaturesAt >= 10000) {
+        this.temperaturesAt = at
+        try {
+          const sensors = parseTemperatures(
+            await this.optionalExec(commands.temperatures, controller.signal),
+          )
+          this.temperatures = sensors
+            ? value(sensors)
+            : unavailable('Датчики температуры недоступны')
+          this.temperatures.sampledAt = Date.now()
+        } catch {
+          this.temperatures = unavailable('Не удалось прочитать датчики температуры')
+        }
+      }
+      if (generation !== this.generation) return
       if ([cpuMetric, netMetric, ram, uptime].every((metric) => metric.status === 'unavailable'))
         throw new Error('Метрики Linux недоступны')
       if (at - this.diskAt >= 30000) {
@@ -282,6 +303,7 @@ export class LinuxMonitor {
         uptime,
         disks: this.disks,
         users: this.users,
+        temperatures: this.temperatures,
         system: this.system,
         history: [...this.history],
       })

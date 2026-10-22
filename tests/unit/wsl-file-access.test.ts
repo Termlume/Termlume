@@ -162,6 +162,6 @@ it('does not overwrite a local file created while a WSL download is running', as
   let appeared=false
   await expect(files.transfer(root,{sessionId:'test',direction:'download',source,target,overwrite:false,localRoot:outside},new AbortController().signal,done=>{
     if(done>0 && !appeared){appeared=true;writeFileSync(target,'keep this file')}
-  })).rejects.toMatchObject({code:'EEXIST'})
+  })).rejects.toMatchObject({code:'exists'})
   expect(await fs.readFile(target,'utf8')).toBe('keep this file')
 })

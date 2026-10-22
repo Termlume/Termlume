@@ -27,14 +27,25 @@ import {
 import { createPortal } from 'react-dom'
 
 const HoverContext = createContext<{
+  expanded?: boolean
   active?: string
   setActive: Dispatch<SetStateAction<string | undefined>>
 }>({
   setActive: () => {},
 })
-export function MonitoringHoverGroup({ children }: { children: ReactNode }) {
+export function MonitoringHoverGroup({
+  children,
+  expanded = false,
+}: {
+  children: ReactNode
+  expanded?: boolean
+}) {
   const [active, setActive] = useState<string>()
-  return <HoverContext.Provider value={{ active, setActive }}>{children}</HoverContext.Provider>
+  return (
+    <HoverContext.Provider value={{ active, setActive, expanded }}>
+      {children}
+    </HoverContext.Provider>
+  )
 }
 
 export function MonitoringHover({
@@ -63,7 +74,7 @@ export function MonitoringHover({
         NFS: FolderSymlink,
       } as Record<string, typeof Cpu>
     )[label] || (label.startsWith('/') ? HardDrive : undefined)
-  const { active, setActive } = useContext(HoverContext)
+  const { active, setActive, expanded } = useContext(HoverContext)
   const id = useId()
   const open = active === id
   const setOpen = (value: boolean) => {
@@ -122,6 +133,14 @@ export function MonitoringHover({
       window.removeEventListener('scroll', positionPopup, true)
     }
   }, [open])
+  if (expanded)
+    return (
+      <section className="metric-card">
+        <div className="metric-label">{label}</div>
+        <strong>{value}</strong>
+        {children}
+      </section>
+    )
   return (
     <>
       <button

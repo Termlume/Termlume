@@ -20,6 +20,7 @@ import { HostRepository } from './storage/HostRepository'
 import { SettingsRepository } from './storage/SettingsRepository'
 import { KnownHostsRepository } from './storage/KnownHostsRepository'
 import { IdentityRepository } from './storage/IdentityRepository'
+import { removeCredentialLinks, secretReferenceIsShared, sameCredentialBinding } from './storage/credential-management'
 import { SecretVault } from './storage/SecretVault'
 import { DataImportTransaction } from './storage/DataImportTransaction'
 import {
@@ -40,6 +41,7 @@ import { TelnetAdapter } from './sessions/TelnetAdapter'
 import { LocalShellAdapter } from './sessions/LocalShellAdapter'
 import { discoverSshIdentities } from './ssh/discover-identities'
 import { listWslDistributions, wslRoot } from './platform/wsl'
+import { wslHomeDirectory } from './platform/wsl-home'
 import { WslFileAccess } from './sftp/WslFileAccess'
 import type {
   SessionEvent,
@@ -69,6 +71,9 @@ export class Backend {
       : join(app.getAppPath(), 'native', 'windows-drag', 'bin', 'Termlume.FileDrag.exe'),
   )
   private readonly dragDirectories = new Set<string>()
+  private readonly downloadDirectories = new Set<string>()
+  private readonly collisionChoices = new Map<string, import('./sftp/collisions').CollisionChoice>()
+  private collisionPrompt: Promise<unknown> = Promise.resolve()
   readonly remoteEdits: RemoteEditService
   readonly transfers: TransferQueue
   readonly monitoring: MonitoringService
@@ -78,6 +83,7 @@ export class Backend {
   private closing = false
   private closePromise?: Promise<void>
   private storageMutations = 0
+  private sessionUsernames = new Map<string, string>()
   private dataImportInProgress = false
   private pendingImports = new Map<string, PortableData>()
   constructor(
@@ -109,27 +115,30 @@ export class Backend {
           profile.protocol === 'sftp' ||
           profile.protocol === 'ftp'
         ) {
-          const identity =
+          let identity =
             !temporary && 'identityId' in profile && profile.identityId
               ? (await this.identities.list()).find((value) => value.id === profile.identityId)
               : undefined
-          const reference = identity?.secretRef || profile.secretRef || identity?.id || profile.id
+          // Legacy identities sometimes kept the protected secret reference only on their host.
+          if (identity && !identity.username && !identity.secretRef && profile.secretRef)
+            identity = await this.identities.save({ ...identity, secretRef: profile.secretRef })
+          let reference = identity ? identity.secretRef || identity.id : profile.secretRef || profile.id
+          let expectedBinding: import('../shared/contracts').HostProfile | import('../shared/contracts').SshIdentity = identity || profile
+          const readBinding = async () => identity
+            ? (await this.identities.list()).find(item => item.id === identity?.id)
+            : (await this.hosts.list()).find(item => item.id === profile.id)
           const remember = temporary
             ? undefined
             : async (value: string) => {
                 try {
+                  const current = await readBinding()
+                  if (!current || !sameCredentialBinding(expectedBinding, current)) return
+                  if (secretReferenceIsShared(reference, identity ? { identityId: identity.id } : { hostId: profile.id }, await this.hosts.list(), await this.identities.list()))
+                    reference = randomUUID()
                   await this.vault.set(reference, value)
-                  if (identity) await this.identities.save({ ...identity, secretRef: reference })
-                  else {
-                    const current = (await this.hosts.list()).find((host) => host.id === profile.id)
-                    if (
-                      current &&
-                      (current.protocol === 'ssh' ||
-                        current.protocol === 'sftp' ||
-                        current.protocol === 'ftp')
-                    )
-                      await this.hosts.save({ ...current, secretRef: reference })
-                  }
+                  expectedBinding = identity
+                    ? await this.identities.save({ ...current, secretRef: reference } as import('../shared/contracts').SshIdentity)
+                    : await this.hosts.save({ ...current, secretRef: reference } as import('../shared/contracts').HostProfile)
                 } catch {
                   this.notice(
                     'Не удалось сохранить секрет с защитой Windows. Введите его снова при следующем подключении.',
@@ -137,22 +146,13 @@ export class Backend {
                 }
               }
           const clearStoredSecret = async () => {
-            await this.vault.remove(reference)
-            if (identity) {
-              const { secretRef: _secretRef, ...metadata } = identity
-              await this.identities.save(metadata)
-            } else {
-              const current = (await this.hosts.list()).find((host) => host.id === profile.id)
-              if (
-                current &&
-                (current.protocol === 'ssh' ||
-                  current.protocol === 'sftp' ||
-                  current.protocol === 'ftp')
-              ) {
-                const { secretRef: _secretRef, ...metadata } = current
-                await this.hosts.save(metadata)
-              }
-            }
+            const current = await readBinding()
+            if (!current || !sameCredentialBinding(expectedBinding, current)) return
+            if (!secretReferenceIsShared(reference, identity ? { identityId: identity.id } : { hostId: profile.id }, await this.hosts.list(), await this.identities.list()))
+              await this.vault.remove(reference)
+            expectedBinding = identity
+              ? await this.identities.save({ ...current, secretRef: undefined } as import('../shared/contracts').SshIdentity)
+              : await this.hosts.save({ ...current, secretRef: undefined } as import('../shared/contracts').HostProfile)
           }
           const options = {
             knownHosts: this.knownHosts,
@@ -166,6 +166,7 @@ export class Backend {
             clearStoredSecret,
             fileReady: profile.protocol === 'sftp' ? () => this.sftp.get(id) : undefined,
           }
+          this.sessionUsernames.set(id, identity?.username || profile.username)
           return profile.protocol === 'ftp'
             ? new FtpAdapter(profile, options)
             : new SshAdapter(profile, options)
@@ -173,10 +174,15 @@ export class Backend {
         throw new AppError('protocol-unavailable', 'Протокол недоступен')
       },
       (_owner, event) => {
+        if (event.type === 'state' && event.state === 'connected') {
+          const username = this.sessionUsernames.get(event.sessionId)
+          if (username) void this.settings.update({ lastUsername: username }).catch(() => {})
+        }
         if (
           event.type === 'closed' ||
           (event.type === 'state' && ['error', 'disconnected'].includes(event.state))
         ) {
+          this.sessionUsernames.delete(event.sessionId)
           this.monitoring?.closeSession(event.sessionId)
           void this.transfers?.closeSession(event.sessionId)
           void this.sftp?.close(event.sessionId)
@@ -202,6 +208,34 @@ export class Backend {
       },
     )
     this.transfers = new TransferQueue(async (request, signal, progress) => {
+      let applyAll: import('./sftp/collisions').CollisionChoice | undefined
+      request.resolveCollision = async (target, abort) => {
+        const prompt = this.collisionPrompt.then(async () => {
+          abort.throwIfAborted()
+          if (request.batchId && this.collisionChoices.has(request.batchId))
+            return this.collisionChoices.get(request.batchId)!
+          if (applyAll) return applyAll
+          const result = await dialog.showMessageBox({
+            type: 'question', title: 'Файл уже существует', message: target,
+            detail: 'Папки объединяются. Выберите действие для совпадающих файлов.',
+            buttons: ['Заменить', 'Пропустить', 'Сохранить оба', 'Отменить передачу'],
+            cancelId: 3, defaultId: 1, checkboxLabel: 'Применить ко всем файлам этой передачи',
+          })
+          abort.throwIfAborted()
+          const choice = (['replace', 'skip', 'keep-both', 'cancel'] as const)[result.response] || 'cancel'
+          if (result.checkboxChecked) {
+            applyAll = choice
+            if (request.batchId) {
+              this.collisionChoices.set(request.batchId, choice)
+              if (this.collisionChoices.size > 200)
+                this.collisionChoices.delete(this.collisionChoices.keys().next().value!)
+            }
+          }
+          return choice
+        })
+        this.collisionPrompt = prompt.catch(() => {})
+        return prompt
+      }
       const profile = this.sessions.get(this.ownerId, request.sessionId).profile
       if (profile.protocol === 'wsl')
         return this.wslFiles.transfer(
@@ -403,17 +437,25 @@ export class Backend {
         ? posix.basename(request.path)
         : win32.basename(request.path),
     )
-    if (isRemoteFileProtocol(profile.protocol)) {
-      const stat = await this.remoteFiles.lstat(request.sessionId, request.path)
-      if (!stat?.isFile() || stat.isSymbolicLink())
-        throw new AppError('regular-file-only', 'Переносить можно только обычные файлы')
-    } else {
-      const root =
-        profile.protocol === 'wsl' ? await wslRoot(profile.distribution) : this.localFiles.root
-      const source = await ensureLocalPath(root, request.path)
-      if (!(await fs.lstat(source)).isFile())
-        throw new AppError('regular-file-only', 'Переносить можно только обычные файлы')
+    const descriptors: { name: string; directory: boolean }[] = []
+    const remote = isRemoteFileProtocol(profile.protocol)
+    const localRoot = remote ? undefined : profile.protocol === 'wsl' ? await wslRoot(profile.distribution) : this.localFiles.root
+    const describe = async (path: string, relative: string, depth: number): Promise<void> => {
+      if (depth > 128 || descriptors.length >= 100000 || relative.length > 259)
+        throw new AppError('directory-limit', 'Папка превышает ограничения переноса Windows')
+      const stat = remote ? await this.remoteFiles.lstat(request.sessionId, path) : await fs.lstat(await ensureLocalPath(localRoot!, path))
+      if (!stat || stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory()))
+        throw new AppError('unsafe-link', 'Перенос поддерживает обычные файлы и папки без символических ссылок')
+      descriptors.push({ name: relative, directory: stat.isDirectory() })
+      if (!stat.isDirectory()) return
+      const names = remote ? (await this.remoteFiles.list(request.sessionId, path)).entries.map((entry) => entry.name) : await fs.readdir(path)
+      for (const child of names) {
+        validateFileName(child)
+        await describe(remote ? posix.join(path, child) : join(path, child), relative + '\\' + child, depth + 1)
+      }
     }
+    await describe(request.path, name, 0)
+    /* Metadata only: file bytes remain deferred until the native drop commits. */
     const source = BrowserWindow.fromWebContents(sender)
     if (!source || source.isDestroyed()) return false
     const bounds = source.getBounds(), cursor = screen.getCursorScreenPoint()
@@ -426,7 +468,7 @@ export class Backend {
         : handle?.readUInt32LE().toString(16)
     let directory: string | undefined
     try {
-      return await this.nativeDrag.drag({ name, sourceWindow }, async (signal) => {
+      return await this.nativeDrag.drag({ name, sourceWindow, entries: descriptors }, async (signal) => {
         signal.throwIfAborted()
         this.requireFileSession(request.sessionId)
         directory = await fs.mkdtemp(join(app.getPath('temp'), 'termlume-drop-'))
@@ -486,9 +528,34 @@ export class Backend {
         return this.monitoring.setVisible(request.sessionId, request.visible)
       case 'monitoring.retry':
         return this.monitoring.retry(request.sessionId)
-      case 'files.enqueue':
+      case 'files.enqueue': {
         this.requireFileSession(request.sessionId)
-        return this.transfers.enqueue({ ...request, localRoot: this.localFiles.root })
+        let localRoot = this.localFiles.root
+        if (request.direction === 'download') {
+          for (const root of this.downloadDirectories) {
+            try { await ensureLocalPath(root, dirname(request.target)); localRoot = root; break } catch { /* Try the next explicitly granted destination. */ }
+          }
+        }
+        return this.transfers.enqueue({ ...request, localRoot })
+      }
+      case 'files.downloadDestination': {
+        const settings = await this.settings.get()
+        let destination = settings.downloadDirectory || app.getPath('downloads')
+        if (request.choose || settings.askDownloadDirectory) {
+          const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], defaultPath: destination, title: 'Папка для скачивания' })
+          if (result.canceled || !result.filePaths[0]) return undefined
+          destination = result.filePaths[0]
+        }
+        destination = await fs.realpath(destination)
+        this.downloadDirectories.add(destination)
+        return destination
+      }
+      case 'files.showLocal': {
+        const entry = this.transfers.completedDownload(request.path)
+        const target = await ensureLocalPath(entry.request.localRoot, request.path)
+        shell.showItemInFolder(target)
+        return
+      }
       case 'files.transfers':
         return this.transfers.list()
       case 'files.clearCompleted':
@@ -568,7 +635,9 @@ export class Backend {
         const sources = await Promise.all(
           request.paths.map((path) => this.localFiles.validateExternalDroppedFile(path)),
         )
+        const batchId = randomUUID()
         const requests = sources.map(({ source, localRoot }) => ({
+          batchId,
           sessionId: request.sessionId,
           direction: 'upload' as const,
           source,
@@ -620,8 +689,13 @@ export class Backend {
             'Откройте SSH- или WSL-сеанс для работы с файлами',
           )
         const profile = this.requireFileSession(request.sessionId)
-        if (profile.protocol === 'wsl')
-          return this.wslFiles.list(await wslRoot(profile.distribution), request.path)
+        if (profile.protocol === 'wsl') {
+          const root = await wslRoot(profile.distribution)
+          const path = request.path === '.'
+            ? await wslHomeDirectory(profile.distribution, root)
+            : request.path
+          return this.wslFiles.list(root, path)
+        }
         if (profile.protocol === 'local') {
           const result = await this.localFiles.list(
             request.path === '.' ? this.localFiles.root : request.path,
@@ -685,9 +759,42 @@ export class Backend {
       case 'identities.list':
         return this.identities.list()
       case 'identities.save':
-        return this.withStorageMutation(() => this.identities.save(request.identity))
+        return this.withStorageMutation(async () => {
+          let existing = (await this.identities.list()).find(item => item.id === request.identity.id)
+          if (existing && !existing.secretRef && !existing.username) {
+            const legacy = (await this.hosts.list()).find(host => 'identityId' in host && host.identityId === existing!.id && host.secretRef)
+            if (legacy && 'secretRef' in legacy) existing = { ...existing, secretRef: legacy.secretRef }
+          }
+          const identity = { ...request.identity, secretRef: existing && existing.method !== request.identity.method ? undefined : existing?.secretRef || request.identity.secretRef }
+          if (request.secret !== undefined) {
+            identity.secretRef = existing?.secretRef || identity.id
+            if (secretReferenceIsShared(identity.secretRef, { identityId: identity.id }, await this.hosts.list(), await this.identities.list()))
+              identity.secretRef = randomUUID()
+            await this.vault.set(identity.secretRef, request.secret)
+          }
+          return this.identities.save(identity)
+        })
       case 'identities.remove':
-        return this.withStorageMutation(() => this.identities.remove(request.id))
+        return this.withStorageMutation(async () => {
+          const identities = await this.identities.list(), identity = identities.find(item => item.id === request.id)
+          if (!identity) return
+          const hosts = await this.hosts.list(), updated = removeCredentialLinks(hosts, identity, request, identities.find(item => item.id === request.replacementId))
+          if (request.detach && !request.replacementId) {
+            for (let index = 0; index < hosts.length; index++) {
+              const host = updated[index]
+              if (hosts[index] !== host && 'secretRef' in host && host.secretRef) {
+                const secret = await this.vault.get(host.secretRef)
+                const reference = secretReferenceIsShared(host.id, { hostId: host.id }, hosts, identities) ? randomUUID() : host.id
+                if (secret !== undefined) await this.vault.set(reference, secret)
+                updated[index] = { ...host, secretRef: secret !== undefined ? reference : undefined }
+              }
+            }
+          }
+          // Update references first; an interrupted operation never leaves a dangling credential ID.
+          for (let index = 0; index < hosts.length; index++) if (hosts[index] !== updated[index]) await this.hosts.save(updated[index])
+          // Keep vault records: detached hosts and historical references can still use them.
+          await this.identities.remove(request.id)
+        })
       case 'sessions.open': {
         const profile = (await this.hosts.list()).find((host) => host.id === request.profileId)
         this.ensureActive()
@@ -730,6 +837,7 @@ export class Backend {
                 ...request.profile,
                 secretRef:
                   previous &&
+                  !('identityId' in request.profile && request.profile.identityId && (!('identityId' in previous) || previous.identityId !== request.profile.identityId)) &&
                   previous.protocol === request.profile.protocol &&
                   'secretRef' in previous &&
                   (!('auth' in previous) ||
@@ -745,8 +853,11 @@ export class Backend {
         return this.withStorageMutation(async () => {
           const profile = (await this.hosts.list()).find((host) => host.id === request.id)
           this.ensureActive()
-          if (profile && 'secretRef' in profile && profile.secretRef)
-            await this.vault.remove(profile.secretRef)
+          if (profile && 'secretRef' in profile && profile.secretRef) {
+            const sharedByHost = (await this.hosts.list()).some(host => host.id !== profile.id && 'secretRef' in host && host.secretRef === profile.secretRef)
+            const sharedByIdentity = (await this.identities.list()).some(identity => identity.secretRef === profile.secretRef)
+            if (!sharedByHost && !sharedByIdentity) await this.vault.remove(profile.secretRef)
+          }
           return this.hosts.remove(request.id)
         })
       }
@@ -761,11 +872,17 @@ export class Backend {
               profile.protocol !== 'ftp')
           )
             throw new AppError('invalid-profile', 'Не найдено SSH-подключение')
-          await this.vault.set(profile.id, request.value)
-          return this.hosts.save({ ...profile, secretRef: profile.id })
+          if ('identityId' in profile && profile.identityId)
+            throw new AppError('invalid-profile', 'Изменяйте общие учётные данные в настройках')
+          let reference = profile.secretRef || profile.id
+          if (secretReferenceIsShared(reference, { hostId: profile.id }, await this.hosts.list(), await this.identities.list()))
+            reference = randomUUID()
+          await this.vault.set(reference, request.value)
+          return this.hosts.save({ ...profile, secretRef: reference })
         })
       }
       case 'settings.get': {
+        await this.settings.flush()
         const value = await this.settings.get()
         if (this.settings.warning) this.notice(this.settings.warning)
         return value

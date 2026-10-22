@@ -57,7 +57,9 @@ it('offers editor modes, properties and explicit row rename from context menu', 
   expect(screen.queryByRole('menu')).toBeNull()
   fireEvent.contextMenu(row)
   fireEvent.click(screen.getByRole('menuitem', { name: 'Переименовать' }))
-  fireEvent.change(screen.getByRole('textbox', { name: 'Имя', exact: true }), { target: { value: 'updated' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Имя', exact: true }), {
+    target: { value: 'updated' },
+  })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await waitFor(() =>
     expect(mutate).toHaveBeenCalledWith(
@@ -213,6 +215,7 @@ it('remoteOnlyShowsTheRemoteBrowserAndDownloadsSelectedFiles', async () => {
       files: {
         localRoot: async () => 'C:\\Users\\tester',
         chooseUpload: async () => ['C:\\Upload\\firmware.bin'],
+        downloadDestination: async () => 'C:\\Users\\tester',
         list: async ({ side }: { side: 'local' | 'remote' }) => ({
           path: side === 'local' ? 'C:\\Users\\tester' : '/home/tester',
           entries: side === 'local' ? [local] : [remote],
@@ -240,7 +243,7 @@ it('remoteOnlyShowsTheRemoteBrowserAndDownloadsSelectedFiles', async () => {
   expect(await screen.findByText('remote.txt')).toBeTruthy()
   expect(screen.queryByText('Этот компьютер')).toBeNull()
   fireEvent.click(screen.getByText('remote.txt'))
-  fireEvent.click(screen.getByRole('button', { name: 'Скачать' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Скачать в…' }))
   await waitFor(() =>
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -258,6 +261,7 @@ it('remoteOnlyShowsTheRemoteBrowserAndDownloadsSelectedFiles', async () => {
       source: 'C:\\Upload\\firmware.bin',
       target: '/home/tester/firmware.bin',
       overwrite: false,
+      batchId: expect.any(String),
     }),
   )
 })
@@ -577,17 +581,17 @@ it('hidesAndRestoresQueueAndOpensCompletedDownloads', async () => {
     },
   })
   render(<Transfers sessionId="session-id" />)
-  expect(await screen.findByText(/report.txt/)).toBeTruthy()
+  expect(await screen.findByText('report.txt', { exact: true })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Открыть файл' }))
   await waitFor(() => expect(openLocal).toHaveBeenCalledWith(completed.target))
   fireEvent.click(screen.getByRole('button', { name: 'Скрыть очередь передач' }))
-  expect(screen.queryByText(/report.txt/)).toBeNull()
+  expect(screen.queryByText('report.txt', { exact: true })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /Показать очередь передач/ }))
-  expect(await screen.findByText(/report.txt/)).toBeTruthy()
+  expect(await screen.findByText('report.txt', { exact: true })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Очистить завершённые' }))
   await waitFor(() => expect(clearCompleted).toHaveBeenCalledWith('session-id'))
-  expect(screen.queryByText(/report.txt/)).toBeNull()
-  expect(screen.getByText(/active.bin/)).toBeTruthy()
+  expect(screen.queryByText('report.txt', { exact: true })).toBeNull()
+  expect(screen.getByText('active.bin', { exact: true })).toBeTruthy()
 })
 
 it('moves an internal remote drag into the target folder without starting native OLE', async () => {

@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { TransferRequest, TransferSnapshot } from '../../shared/contracts'
 import { AppError, safeError } from '../../shared/errors'
-export type TransferJob = TransferRequest & { localRoot: string }
+export type TransferJob = TransferRequest & {
+  localRoot: string
+  resolveCollision?: (
+    target: string,
+    signal: AbortSignal,
+  ) => Promise<import('./collisions').CollisionChoice>
+}
 type Runner = (
   request: TransferJob,
   signal: AbortSignal,
@@ -146,6 +152,7 @@ export class TransferQueue {
       let last = 0
       entry.task = Promise.resolve()
         .then(() => {
+          entry.snapshot.target = entry.request.target
           entry.abort.signal.throwIfAborted()
           return this.runner(entry.request, entry.abort.signal, (done, total) => {
             entry.snapshot.bytesDone = done
@@ -163,6 +170,7 @@ export class TransferQueue {
           if (entry.snapshot.state === 'running') {
             entry.snapshot.state = 'failed'
             entry.snapshot.error = safeError(error)
+            if ((error as AppError).code === 'canceled') entry.snapshot.state = 'canceled'
             entry.snapshot.conflict = (
               error as { targetVersion?: TransferSnapshot['conflict'] }
             ).targetVersion

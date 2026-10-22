@@ -107,6 +107,8 @@ export function Transfers({
                 <div className="transfer-info">
                   <strong title={entry.source}>{entry.source.split(/[\\/]/).at(-1)}</strong>
                   <small>
+                    Назначение: {entry.target}
+                    <br />
                     {entry.error?.message || labels[entry.state]} ·{' '}
                     {Math.round(entry.bytesDone / 1024)} / {Math.round(entry.bytesTotal / 1024)} KB
                   </small>
@@ -147,6 +149,19 @@ export function Transfers({
                     onClick={() => (entry.conflict ? setReplace(entry) : void retry(entry))}
                   >
                     <RotateCcw size={13} />
+                  </button>
+                )}
+                {entry.state === 'completed' && entry.direction === 'download' && (
+                  <button
+                    title="Показать в папке"
+                    aria-label="Показать в папке"
+                    onClick={() =>
+                      window.terminalApi.files
+                        .showLocal(entry.target)
+                        .catch((error) => setError(String(error)))
+                    }
+                  >
+                    ↗
                   </button>
                 )}
               </div>

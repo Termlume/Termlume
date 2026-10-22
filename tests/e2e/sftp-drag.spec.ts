@@ -1,6 +1,6 @@
 import { allowClosing } from './helpers'
 import { test, expect, _electron as electron } from '@playwright/test'
-import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -115,150 +115,166 @@ test('remote file is immediately draggable without hover downloads or preparatio
   }
 })
 
-test('FileList HTML drag transitions to native OLE and drops real SSH bytes onto desktop and Explorer', async () => {
-  test.skip(
-    process.platform !== 'win32' || process.env.TERMLUME_NATIVE_UI_TESTS !== '1',
-    'Requires the interactive Windows desktop',
-  )
-  const data = await mkdtemp(join(tmpdir(), 'termlume-desktop-drop-')),
-    remote = join(data, 'remote')
-  await mkdir(remote)
-  const name = `termlume-drop-${randomUUID()}.bin`,
-    bytes = randomBytes(512 * 1024 + 37)
-  await writeFile(join(remote, name), bytes)
-  const server = await sshFixture({ sftpRoot: remote }),
-    env = { ...process.env }
-  delete env.ELECTRON_RUN_AS_NODE
-  const app = await electron.launch({ args: ['.', '--user-data-dir=' + join(data, 'app')], env })
-  let driver: ReturnType<typeof spawn> | undefined
-  let targets: string[] = []
-  try {
-    const page = await app.firstWindow()
-    await page.evaluate(async (port) => {
-      const id = crypto.randomUUID()
-      await window.terminalApi.hosts.save({
-        id,
-        name: 'Desktop drop',
-        protocol: 'ssh',
-        host: '127.0.0.1',
-        port,
-        username: 'user',
-        auth: 'password',
-        group: '',
-        favorite: false,
-        monitoringEnabled: false,
-      })
-      await window.terminalApi.hosts.setSecret(id, 'test-password')
-    }, server.port)
-    await page.reload()
-    await page.getByRole('button', { name: 'Подключиться: Desktop drop' }).click()
-    await page.getByRole('button', { name: 'Доверять и подключиться' }).click()
-    await expect(page.getByRole('contentinfo')).toContainText('Подключено · SSH')
-    await page.getByRole('button', { name: 'Файлы', exact: true }).click()
-    const row = page.getByText(name, { exact: true }).locator('xpath=ancestor::tr')
-    await expect(row).toHaveAttribute('draggable', 'true')
-    await page.evaluate(() => {
-      const state = { started: 0, ended: 0 }
-      Object.assign(window, { dragGestureState: state })
-      document.addEventListener('dragstart', () => state.started++)
-      document.addEventListener('dragend', () => state.ended++)
-    })
-    const sourceWindow = await app.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0]
-      window.unmaximize()
-      window.setBounds({ x: 20, y: 20, width: 1000, height: 700 })
-      return window.getNativeWindowHandle().readBigUInt64LE().toString(16)
-    })
-    const explorerDirectory = join(data, 'explorer-target')
-    await mkdir(explorerDirectory)
-    for (const mode of ['desktop', 'explorer']) {
-      driver = spawn(
-        resolve('native/windows-drag/bin/Termlume.FileDrag.exe'),
-        mode === 'desktop'
-          ? ['--desktop-gesture-test', sourceWindow]
-          : ['--explorer-gesture-test', explorerDirectory, sourceWindow],
-        { windowsHide: true, stdio: 'pipe' },
-      )
-      const messages: { type: string; directory?: string; error?: string }[] = []
-      createInterface({ input: driver.stdout! }).on('line', (line) =>
-        messages.push(JSON.parse(line)),
-      )
-      driver.stderr?.resume()
-      const wait = async (type: string, start = 0) => {
-        for (let n = 0; n < 400; n++) {
-          const value = messages.slice(start).find((message) => message.type === type)
-          if (value) return value
-          const error = messages.find((message) => message.type === 'error')
-          if (error) throw new Error(error.error)
-          await delay(25)
-        }
-        throw new Error(mode + ' driver timed out: ' + type)
-      }
-      const directory = (await wait('desktop-ready')).directory!
-      const target = join(directory, name)
-      targets.push(target)
-      const rect = await row.boundingBox()
-      if (!rect) throw new Error('Remote file row is not visible')
-      const origin = await app.evaluate(({ BrowserWindow, screen }) => {
-        const window = BrowserWindow.getAllWindows()[0]
-        const bounds = window.getContentBounds()
-        const scale = screen.getDisplayMatching(bounds).scaleFactor
-        return { x: bounds.x, y: bounds.y, scale }
-      })
-      const startedBefore = await page.evaluate(
-        () =>
-          (window as unknown as { dragGestureState: { started: number } }).dragGestureState.started,
-      )
-      driver.stdin!.write(
-        `down-at|${Math.round((origin.x + rect.x + 55) * origin.scale)}|${Math.round((origin.y + rect.y + rect.height / 2) * origin.scale)}\n`,
-      )
-      await wait('pressed')
-      await expect
-        .poll(() =>
-          page.evaluate(
-            () =>
-              (window as unknown as { dragGestureState: { started: number } }).dragGestureState
-                .started,
-          ),
-        )
-        .toBe(startedBefore + 1)
-      await expect(page.locator('.transfer-row')).toHaveCount(0)
-      driver.stdin!.write('outside\n')
-      await wait('outside')
-      driver.stdin!.write('waitoutside\n')
-      await wait('tracking')
-      driver.stdin!.write('release\n')
-      await wait('released')
-      await expect
-        .poll(async () => {
-          try {
-            return (await readFile(target)).equals(bytes)
-          } catch {
-            return false
-          }
+for (const folder of [false, true])
+  test(`FileList HTML drag transitions to native OLE and drops real SSH ${folder ? 'folders' : 'bytes'} onto desktop and Explorer`, async () => {
+    test.skip(
+      process.platform !== 'win32' || process.env.TERMLUME_NATIVE_UI_TESTS !== '1',
+      'Requires the interactive Windows desktop',
+    )
+    const data = await mkdtemp(join(tmpdir(), 'termlume-desktop-drop-')),
+      remote = join(data, 'remote')
+    await mkdir(remote)
+    const name = `termlume-drop-${randomUUID()}${folder ? '' : '.bin'}`,
+      bytes = randomBytes(512 * 1024 + 37)
+    if (folder) await mkdir(join(remote, name, 'nested', 'empty'), { recursive: true })
+    await writeFile(folder ? join(remote, name, 'nested', 'bytes.bin') : join(remote, name), bytes)
+    const server = await sshFixture({ sftpRoot: remote }),
+      env = { ...process.env }
+    delete env.ELECTRON_RUN_AS_NODE
+    const app = await electron.launch({ args: ['.', '--user-data-dir=' + join(data, 'app')], env })
+    let driver: ReturnType<typeof spawn> | undefined
+    let targets: string[] = []
+    try {
+      const page = await app.firstWindow()
+      await page.evaluate(async (port) => {
+        const id = crypto.randomUUID()
+        await window.terminalApi.hosts.save({
+          id,
+          name: 'Desktop drop',
+          protocol: 'ssh',
+          host: '127.0.0.1',
+          port,
+          username: 'user',
+          auth: 'password',
+          group: '',
+          favorite: false,
+          monitoringEnabled: false,
         })
-        .toBe(true)
-      driver.stdin!.write('close\n')
-      await new Promise<void>((done) => driver!.once('exit', () => done()))
-      driver = undefined
+        await window.terminalApi.hosts.setSecret(id, 'test-password')
+      }, server.port)
+      await page.reload()
+      await page.getByRole('button', { name: 'Подключиться: Desktop drop' }).click()
+      await page.getByRole('button', { name: 'Доверять и подключиться' }).click()
+      await expect(page.getByRole('contentinfo')).toContainText('Подключено · SSH')
+      await page.getByRole('button', { name: 'Файлы', exact: true }).click()
+      const row = page.getByText(name, { exact: true }).locator('xpath=ancestor::tr')
+      await expect(row).toHaveAttribute('draggable', 'true')
+      await page.evaluate(() => {
+        const state = { started: 0, ended: 0 }
+        Object.assign(window, { dragGestureState: state })
+        document.addEventListener('dragstart', () => state.started++)
+        document.addEventListener('dragend', () => state.ended++)
+      })
+      const sourceWindow = await app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        window.unmaximize()
+        window.setBounds({ x: 20, y: 20, width: 1000, height: 700 })
+        return window.getNativeWindowHandle().readBigUInt64LE().toString(16)
+      })
+      const explorerDirectory = join(data, 'explorer-target')
+      await mkdir(explorerDirectory)
+      for (const mode of ['desktop', 'explorer']) {
+        driver = spawn(
+          resolve('native/windows-drag/bin/Termlume.FileDrag.exe'),
+          mode === 'desktop'
+            ? ['--desktop-gesture-test', sourceWindow]
+            : ['--explorer-gesture-test', explorerDirectory, sourceWindow],
+          { windowsHide: true, stdio: 'pipe' },
+        )
+        const messages: { type: string; directory?: string; error?: string }[] = []
+        createInterface({ input: driver.stdout! }).on('line', (line) =>
+          messages.push(JSON.parse(line)),
+        )
+        driver.stderr?.resume()
+        const wait = async (type: string, start = 0) => {
+          for (let n = 0; n < 400; n++) {
+            const value = messages.slice(start).find((message) => message.type === type)
+            if (value) return value
+            const error = messages.find((message) => message.type === 'error')
+            if (error) throw new Error(error.error)
+            await delay(25)
+          }
+          throw new Error(mode + ' driver timed out: ' + type)
+        }
+        const directory = (await wait('desktop-ready')).directory!
+        const target = join(directory, name)
+        targets.push(target)
+        const rect = await row.boundingBox()
+        if (!rect) throw new Error('Remote file row is not visible')
+        const origin = await app.evaluate(({ BrowserWindow, screen }) => {
+          const window = BrowserWindow.getAllWindows()[0]
+          const bounds = window.getContentBounds()
+          const scale = screen.getDisplayMatching(bounds).scaleFactor
+          return { x: bounds.x, y: bounds.y, scale }
+        })
+        const startedBefore = await page.evaluate(
+          () =>
+            (window as unknown as { dragGestureState: { started: number } }).dragGestureState
+              .started,
+        )
+        driver.stdin!.write(
+          `down-at|${Math.round((origin.x + rect.x + 55) * origin.scale)}|${Math.round((origin.y + rect.y + rect.height / 2) * origin.scale)}\n`,
+        )
+        await wait('pressed')
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () =>
+                (window as unknown as { dragGestureState: { started: number } }).dragGestureState
+                  .started,
+            ),
+          )
+          .toBe(startedBefore + 1)
+        await expect(page.locator('.transfer-row')).toHaveCount(0)
+        driver.stdin!.write('outside\n')
+        await wait('outside')
+        driver.stdin!.write('waitoutside\n')
+        await wait('tracking')
+        driver.stdin!.write('release\n')
+        await wait('released')
+        await expect
+          .poll(async () => {
+            try {
+              return (await readFile(folder ? join(target, 'nested', 'bytes.bin') : target)).equals(
+                bytes,
+              )
+            } catch {
+              return false
+            }
+          })
+          .toBe(true)
+        if (folder)
+          await expect
+            .poll(async () => {
+              try {
+                return await readdir(join(target, 'nested', 'empty'))
+              } catch {
+                return undefined
+              }
+            })
+            .toEqual([])
+        driver.stdin!.write('close\n')
+        await new Promise<void>((done) => driver!.once('exit', () => done()))
+        driver = undefined
+      }
+    } finally {
+      if (driver) {
+        driver.stdin?.write('cancel\nclose\n')
+        await Promise.race([
+          new Promise<void>((done) => driver!.once('exit', () => done())),
+          delay(2000),
+        ])
+        driver.kill()
+      }
+      await allowClosing(app)
+      await app.close()
+      await server.close()
+      for (const path of targets) {
+        try {
+          if ((await readFile(folder ? join(path, 'nested', 'bytes.bin') : path)).equals(bytes))
+            await rm(path, { recursive: folder })
+        } catch {}
+      }
+      await rm(data, { recursive: true, force: true })
     }
-  } finally {
-    if (driver) {
-      driver.stdin?.write('cancel\nclose\n')
-      await Promise.race([
-        new Promise<void>((done) => driver!.once('exit', () => done())),
-        delay(2000),
-      ])
-      driver.kill()
-    }
-    await allowClosing(app)
-    await app.close()
-    await server.close()
-    for (const path of targets) {
-      try {
-        if ((await readFile(path)).equals(bytes)) await rm(path)
-      } catch {}
-    }
-    await rm(data, { recursive: true, force: true })
-  }
-})
+  })

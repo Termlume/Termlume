@@ -35,15 +35,19 @@ test('macro settings persist, slash inserts without executing, and backup fields
     await page.reload()
     await expect(page.locator('.avatar')).toHaveCount(0)
     await expect(page.locator('.sidebar-heading')).not.toContainText('ЛИЧНОЕ ПРОСТРАНСТВО')
-    await expect(page.locator('.sidebar-bottom .version')).toHaveText('0.2.1b')
-    expect((await page.evaluate(() => window.terminalApi.settings.get())).updateChannel).toBe('stable')
+    await expect(page.locator('.sidebar-bottom .version')).toHaveText('0.2.2')
+    expect((await page.evaluate(() => window.terminalApi.settings.get())).updateChannel).toBe(
+      'stable',
+    )
     await page.screenshot({ path: 'test-results/hosts-dark.png' })
     await page.getByRole('button', { name: 'Настройки', exact: true }).click()
+    await page.getByRole('tab', { name: 'Макросы', exact: true }).click()
     await page.getByRole('button', { name: 'Добавить макрос', exact: true }).click()
     await page.getByLabel('Имя макроса 1', { exact: true }).fill('answer')
     await page.getByLabel('Описание макроса 1', { exact: true }).fill('Проверка макроса')
     await page.getByLabel('Команда макроса 1', { exact: true }).fill('Write-Output (424240 + 2)')
     const checkFields = async () => {
+      await page.getByRole('tab', { name: 'Резервные копии', exact: true }).click()
       await page.locator('.data-transfer').scrollIntoViewIfNeeded()
       const boxes = await page.locator('.data-transfer input[type=password]').evaluateAll((nodes) =>
         nodes.map((node) => {
@@ -57,6 +61,7 @@ test('macro settings persist, slash inserts without executing, and backup fields
       expect(boxes[1].right).toBeLessThan(modal!.x + modal!.width)
     }
     await checkFields()
+    await page.getByRole('tab', { name: 'Внешний вид', exact: true }).click()
     await page.getByRole('button', { name: 'VS Code Light Modern', exact: true }).click()
     await checkFields()
     await page.screenshot({ path: 'test-results/macros-settings-light.png' })
@@ -91,6 +96,7 @@ test('macro settings persist, slash inserts without executing, and backup fields
     await expect(page.locator('.terminal-macros')).toHaveCount(0)
     await page.keyboard.press('Control+c')
     await page.getByRole('button', { name: 'Настройки', exact: true }).click()
+    await page.getByRole('tab', { name: 'Макросы', exact: true }).click()
     await expect(page.getByLabel('Имя макроса 1', { exact: true })).toHaveValue('answer')
     await page.getByRole('button', { name: 'Удалить макрос 1', exact: true }).click()
     await page.getByRole('button', { name: 'Применить', exact: true }).click()

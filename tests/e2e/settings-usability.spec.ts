@@ -20,6 +20,7 @@ test('theme survives reopening settings and custom shortcut works in a real term
       'aria-pressed',
       'true',
     )
+    await page.getByRole('tab', { name: 'Терминал', exact: true }).click()
     await page.getByRole('button', { name: 'Настроить горячие клавиши' }).click()
     await page
       .getByRole('button', { name: 'Изменить: Новая локальная консоль', exact: true })
@@ -58,6 +59,7 @@ test('light theme reaches terminal and chrome, side docks resize without coverin
     const page = await app.firstWindow()
     await page.getByRole('button', { name: 'Настройки', exact: true }).click()
     await page.getByRole('button', { name: 'VS Code Light Modern', exact: true }).click()
+    await page.getByRole('tab', { name: 'Мониторинг', exact: true }).click()
     const interval = page.getByLabel('Обновлять мониторинг каждые')
     await interval.fill('8')
     await page.getByRole('button', { name: 'Применить', exact: true }).click()

@@ -3,6 +3,7 @@ import type { AdapterEvent, SessionProfile, SessionEvent } from '../../shared/co
 import type { SessionAdapter } from './SessionAdapter'
 import { AppError, safeError } from '../../shared/errors'
 import { OutputBuffer } from './OutputBuffer'
+import { TerminalCwdTracker } from './TerminalCwdTracker'
 interface Entry {
   ownerId: number
   profile: SessionProfile
@@ -14,6 +15,7 @@ interface Entry {
   ending?: boolean
   off: () => void
   output: OutputBuffer
+  cwd?: TerminalCwdTracker
   closing?: Promise<void>
 }
 export class SessionManager {
@@ -50,11 +52,23 @@ export class SessionManager {
       () => adapter.pauseOutput(),
       () => adapter.resumeOutput(),
     )
+    if (profile.protocol === 'ssh' || profile.protocol === 'wsl' || profile.protocol === 'local')
+      entry.cwd = new TerminalCwdTracker(
+        profile.protocol === 'ssh' && adapter.cwdUsername
+          ? { ...profile, username: adapter.cwdUsername }
+          : profile,
+        (path) => {
+          if (!entry.closed && !entry.ending) emit({ type: 'cwd', path })
+        },
+      )
     entry.off = adapter.subscribe((event) => {
       if (entry.closed || entry.ending) return
-      if (event.type === 'data') entry.output.push(event.data)
-      else if (event.type === 'closed') {
+      if (event.type === 'data') {
+        entry.output.push(event.data)
+        entry.cwd?.feed(event.data)
+      } else if (event.type === 'closed') {
         entry.ending = true
+        entry.cwd?.close()
         entry.connected = false
         if (event.reason !== 'remote-exit') emit({ type: 'state', state: 'disconnected' })
         void entry.output.finish().then(() => {
@@ -100,6 +114,7 @@ export class SessionManager {
   write(ownerId: number, id: string, data: string) {
     const entry = this.terminal(this.owned(ownerId, id))
     if (!entry.connected) throw new AppError('not-connected', 'Сеанс не подключён')
+    entry.cwd?.input(data)
     entry.adapter.write(data)
   }
   resize(ownerId: number, id: string, cols: number, rows: number) {
@@ -128,6 +143,7 @@ export class SessionManager {
     if (notify)
       this.sink(entry.ownerId, { type: 'closed', sessionId: id, sequence: ++entry.sequence })
     entry.closed = true
+    entry.cwd?.close()
     entry.abort.abort()
     entry.off()
     entry.output.dispose()

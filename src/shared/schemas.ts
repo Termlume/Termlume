@@ -1,6 +1,30 @@
 import { MONITOR_ITEMS, DEFAULT_MONITOR_ITEMS } from './monitoring-items'
 import { SHORTCUT_IDS, shortcutBindingsError } from './keyboard-shortcuts'
 import { z } from 'zod'
+import { DEFAULT_HIGHLIGHT_RULES, highlightRuleError } from './highlight-rules'
+export const highlightRulesSchema = z
+  .array(
+    z
+      .object({
+        id: z.string().min(1).max(100),
+        name: z.string().trim().min(1).max(80),
+        pattern: z.string().min(1).max(256),
+        mode: z.enum(['literal', 'regex']),
+        color: z.string().regex(/^#[0-9a-f]{6}$/i),
+        caseSensitive: z.boolean(),
+        wholeLine: z.boolean(),
+        enabled: z.boolean(),
+      })
+      .superRefine((rule, context) => {
+        const error = highlightRuleError(rule)
+        if (error) context.addIssue({ code: 'custom', message: error })
+      }),
+  )
+  .max(30)
+  .superRefine((rules, context) => {
+    if (new Set(rules.map((rule) => rule.id)).size !== rules.length)
+      context.addIssue({ code: 'custom', message: 'Повторяющийся идентификатор правила.' })
+  })
 const id = z.uuid()
 export const fileDragSchema = z
   .object({
@@ -15,6 +39,12 @@ export const fileDragSchema = z
   })
   .strict()
 const base = {
+  highlightRules: highlightRulesSchema.optional(),
+  monitoringItems: z
+    .array(z.enum(MONITOR_ITEMS))
+    .max(MONITOR_ITEMS.length)
+    .refine((items) => new Set(items).size === items.length)
+    .optional(),
   tags: z
     .array(z.string().trim().max(40))
     .max(30)
@@ -51,6 +81,8 @@ export const hostSchema = z.discriminatedUnion('protocol', [
     username: z.string().min(1).max(100),
     auth: z.enum(['password', 'key']),
     identityId: id.optional(),
+    agentEndpoint: z.string().max(4096).optional(),
+    agentFingerprint: z.string().max(256).optional(),
     keyPath: z.string().max(4096).optional(),
     secretRef: id.optional(),
     monitoringEnabled: z.boolean().default(true),
@@ -63,6 +95,8 @@ export const hostSchema = z.discriminatedUnion('protocol', [
     username: z.string().min(1).max(100),
     auth: z.enum(['password', 'key']),
     identityId: id.optional(),
+    agentEndpoint: z.string().max(4096).optional(),
+    agentFingerprint: z.string().max(256).optional(),
     keyPath: z.string().max(4096).optional(),
     secretRef: id.optional(),
   }),
@@ -118,12 +152,18 @@ export const terminalMacrosSchema = z
       context.addIssue({ code: 'custom', message: 'Повторяющийся идентификатор макроса.' })
   })
 export const settingsSchema = z.object({
+  followTerminalDirectory: z.boolean().default(true),
+  lastUsername: z.string().trim().min(1).max(100).optional(),
+  highlightRules: highlightRulesSchema.default(DEFAULT_HIGHLIGHT_RULES),
+  downloadDirectory: z.string().max(4096).optional(),
+  askDownloadDirectory: z.boolean().optional(),
   macros: terminalMacrosSchema.default([]),
   dismissedUpdateVersion: z.string().max(100).optional(),
   updateChannelPolicy: z.literal(1).optional(),
   monitoringItems: z
     .array(z.enum(MONITOR_ITEMS))
     .max(MONITOR_ITEMS.length)
+    .refine((items) => new Set(items).size === items.length)
     .default(DEFAULT_MONITOR_ITEMS),
   connectionsCollapsed: z.boolean().default(false),
   collapsedHostGroups: z.array(z.string().max(220)).max(1000).default([]),
@@ -163,6 +203,11 @@ export const settingsSchema = z.object({
 // Zod 4 applies defaults even inside partial() fields. IPC patches must contain
 // only supplied values, otherwise unrelated updates overwrite saved preferences.
 export const settingsPatchSchema = z.object({
+  followTerminalDirectory: settingsSchema.shape.followTerminalDirectory.removeDefault().optional(),
+  lastUsername: settingsSchema.shape.lastUsername,
+  highlightRules: settingsSchema.shape.highlightRules.removeDefault().optional(),
+  downloadDirectory: settingsSchema.shape.downloadDirectory,
+  askDownloadDirectory: settingsSchema.shape.askDownloadDirectory,
   macros: settingsSchema.shape.macros.removeDefault().optional(),
   dismissedUpdateVersion: settingsSchema.shape.dismissedUpdateVersion,
   updateChannelPolicy: settingsSchema.shape.updateChannelPolicy,
@@ -192,6 +237,7 @@ export const settingsPatchSchema = z.object({
 export const sshIdentitySchema = z.object({
   id,
   name: z.string().trim().min(1).max(150),
+  username: z.string().trim().min(1).max(100).optional(),
   method: z.enum(['password', 'key', 'agent']),
   secretRef: z.string().max(200).optional(),
   keyPath: z.string().max(4096).optional(),
@@ -217,6 +263,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('files.enqueue'),
+    batchId: id.optional(),
     sessionId: id,
     direction: z.enum(['upload', 'download']),
     source: z
@@ -235,6 +282,8 @@ export const requestSchema = z.discriminatedUnion('action', [
       .optional(),
   }),
   z.object({ action: z.literal('files.localRoot') }),
+  z.object({ action: z.literal('files.downloadDestination'), choose: z.boolean().optional() }),
+  z.object({ action: z.literal('files.showLocal'), path: z.string().min(1).max(4096) }),
   z.object({ action: z.literal('files.chooseLocal') }),
   z.object({ action: z.literal('files.chooseUpload') }),
   z.object({
@@ -366,8 +415,18 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('hosts.list') }),
   z.object({ action: z.literal('identities.list') }),
-  z.object({ action: z.literal('identities.save'), identity: sshIdentitySchema }),
-  z.object({ action: z.literal('identities.remove'), id }),
+  z.object({
+    action: z.literal('identities.save'),
+    identity: sshIdentitySchema,
+    secret: z.string().max(65536).optional(),
+  }),
+  z.object({
+    action: z.literal('identities.remove'),
+    id,
+    replacementId: id.optional(),
+    detach: z.boolean().optional(),
+    confirmMerge: z.boolean().optional(),
+  }),
   z.object({ action: z.literal('identity.chooseKey') }),
   z.object({ action: z.literal('ssh.discoverIdentities') }),
   z.object({ action: z.literal('hosts.save'), profile: hostSchema }),

@@ -40,6 +40,56 @@ async function context(port: number) {
     cleanup: () => rm(root, { recursive: true, force: true }),
   }
 }
+it('uses shared login and vault password instead of stale server credentials across profiles', async () => {
+  const fixture = await sshFixture({ username: 'shared-user', password: 'shared-password' }),
+    ctx = await context(fixture.port)
+  const vault = new SecretVault(join(ctx.root, 'shared-vault.json'), {
+    available: () => true,
+    encrypt: (value) => Buffer.from(value),
+    decrypt: (value) => value.toString(),
+  })
+  await vault.set('shared-ref', 'shared-password')
+  await vault.set('stale-ref', 'wrong-password')
+  try {
+    for (const id of ['first', 'second']) {
+      const adapter = new SshAdapter(
+        { ...ctx.profile, id, username: 'wrong-user', secretRef: 'stale-ref' },
+        {
+          knownHosts: ctx.known,
+          vault,
+          challenges: ctx.challenges,
+          ownerId: 1,
+          sessionId: id,
+          identity: {
+            id: 'shared',
+            name: 'Company',
+            username: 'shared-user',
+            method: 'password',
+            secretRef: 'shared-ref',
+          },
+        },
+      )
+      adapter.subscribe((event) => {
+        if (event.type === 'challenge')
+          ctx.challenges.answer(1, event.challenge.id, {
+            kind: 'trust',
+            accept: true,
+            replaceExisting: false,
+          })
+      })
+      try {
+        await adapter.connect(new AbortController().signal)
+        expect(adapter.getClient()).toBeDefined()
+      } finally {
+        await adapter.close()
+      }
+    }
+    expect(fixture.passwordAuthentications).toBe(2)
+  } finally {
+    await fixture.close()
+    await ctx.cleanup()
+  }
+})
 it('rejectsChangedHostKeyBeforeAuthentication', async () => {
   const fixture = await sshFixture(),
     ctx = await context(fixture.port)

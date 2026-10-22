@@ -52,23 +52,24 @@ namespace Termlume.FileDrag {
   public void Clone(out IEnumFORMATETC clone){clone=new Formats(items){index=index};}
  }
  [ComVisible(true),ClassInterface(ClassInterfaceType.None)] public sealed class VirtualFile:IDataObject {
-  readonly string id,name;readonly short descriptor,contents,effect;string path;
-  internal VirtualFile(string id,string name){this.id=id;this.name=name;descriptor=(short)Native.RegisterClipboardFormat("FileGroupDescriptorW");contents=(short)Native.RegisterClipboardFormat("FileContents");effect=(short)Native.RegisterClipboardFormat("Preferred DropEffect");Program.Trace("formats descriptor="+descriptor+" contents="+contents+" effect="+effect);}
+  readonly string id,name;readonly short descriptor,contents,effect;string path;readonly List<string> names=new List<string>();readonly List<bool> directories=new List<bool>();
+  internal VirtualFile(string id,string name,object manifest){this.id=id;this.name=name;if(manifest!=null){foreach(object value in (System.Collections.IEnumerable)manifest){var item=(Dictionary<string,object>)value;string child=(string)item["name"];if(child.Length>259 || child.StartsWith("\\") || child.Contains(":") || Array.Exists(child.Split('\\'),part=>part==".." || part=="." || part.Length==0 || part.IndexOfAny(Path.GetInvalidFileNameChars())>=0))throw new ArgumentException("Invalid descriptor");names.Add(child);directories.Add((bool)item["directory"]);}}if(names.Count==0){names.Add(name);directories.Add(false);}descriptor=(short)Native.RegisterClipboardFormat("FileGroupDescriptorW");contents=(short)Native.RegisterClipboardFormat("FileContents");effect=(short)Native.RegisterClipboardFormat("Preferred DropEffect");}
   FORMATETC Format(short format,TYMED medium,int index){return new FORMATETC{cfFormat=format,dwAspect=DVASPECT.DVASPECT_CONTENT,lindex=index,tymed=medium};}
   public IEnumFORMATETC EnumFormatEtc(DATADIR direction){Program.Trace("enum formats "+direction);if(direction!=DATADIR.DATADIR_GET)throw new COMException("Not supported",unchecked((int)0x80004001));return new Formats(new[]{Format(descriptor,TYMED.TYMED_HGLOBAL,-1),Format(contents,TYMED.TYMED_ISTREAM,0),Format(effect,TYMED.TYMED_HGLOBAL,-1)});}
-  public int QueryGetData(ref FORMATETC f){Program.Trace("querydata "+Native.FormatName(f.cfFormat)+" id="+f.cfFormat+" medium="+f.tymed+" index="+f.lindex);if(f.dwAspect!=DVASPECT.DVASPECT_CONTENT)return unchecked((int)0x8004006B);if(f.cfFormat==contents)return (f.tymed&TYMED.TYMED_ISTREAM)!=0 && f.lindex==0?0:unchecked((int)0x80040064);return (f.cfFormat==descriptor || f.cfFormat==effect) && (f.tymed&TYMED.TYMED_HGLOBAL)!=0?0:unchecked((int)0x80040064);}
+  public int QueryGetData(ref FORMATETC f){if(f.dwAspect!=DVASPECT.DVASPECT_CONTENT)return unchecked((int)0x8004006B);if(f.cfFormat==contents)return (f.tymed&TYMED.TYMED_ISTREAM)!=0 && f.lindex>=0 && f.lindex<names.Count && !directories[f.lindex]?0:unchecked((int)0x80040064);return (f.cfFormat==descriptor || f.cfFormat==effect) && (f.tymed&TYMED.TYMED_HGLOBAL)!=0?0:unchecked((int)0x80040064);}
   public void GetData(ref FORMATETC f,out STGMEDIUM medium){
    Program.Trace("getdata format="+f.cfFormat+" index="+f.lindex+" medium="+f.tymed+" dropped="+Program.Dropped);int result=QueryGetData(ref f);if(result!=0)Marshal.ThrowExceptionForHR(result);
    medium=new STGMEDIUM();
    if(f.cfFormat==contents){
     if(!Program.Dropped)throw new COMException("Drop has not been committed",unchecked((int)0x8000000A));
     if(path==null)path=Program.Materialize(id);
-    IStream stream;Marshal.ThrowExceptionForHR(Native.SHCreateStreamOnFileEx(path,0x40,0,false,IntPtr.Zero,out stream));
+    string entry=names.Count==1&&!directories[0]?path:Path.Combine(Path.GetDirectoryName(path),names[f.lindex]);
+    IStream stream;Marshal.ThrowExceptionForHR(Native.SHCreateStreamOnFileEx(entry,0x40,0,false,IntPtr.Zero,out stream));
     medium.tymed=TYMED.TYMED_ISTREAM;medium.unionmember=Marshal.GetComInterfaceForObject(stream,typeof(IStream));Marshal.ReleaseComObject(stream);return;
    }
    byte[] bytes;
    if(f.cfFormat==effect)bytes=BitConverter.GetBytes((uint)1);
-   else {bytes=new byte[596];Buffer.BlockCopy(BitConverter.GetBytes(1),0,bytes,0,4);Buffer.BlockCopy(BitConverter.GetBytes((uint)0x80004004),0,bytes,4,4);Buffer.BlockCopy(BitConverter.GetBytes((uint)0x80),0,bytes,40,4);byte[] filename=System.Text.Encoding.Unicode.GetBytes(name);Buffer.BlockCopy(filename,0,bytes,76,Math.Min(filename.Length,518));}
+   else {bytes=new byte[4+592*names.Count];Buffer.BlockCopy(BitConverter.GetBytes(names.Count),0,bytes,0,4);for(int index=0;index<names.Count;index++){int offset=4+592*index;Buffer.BlockCopy(BitConverter.GetBytes((uint)0x80004004),0,bytes,offset,4);Buffer.BlockCopy(BitConverter.GetBytes((uint)(directories[index]?0x10:0x80)),0,bytes,offset+36,4);byte[] filename=System.Text.Encoding.Unicode.GetBytes(names[index]);Buffer.BlockCopy(filename,0,bytes,offset+72,Math.Min(filename.Length,518));}}
    IntPtr memory=Native.GlobalAlloc(0x42,(UIntPtr)bytes.Length);if(memory==IntPtr.Zero)throw new OutOfMemoryException();IntPtr pointer=Native.GlobalLock(memory);Marshal.Copy(bytes,0,pointer,bytes.Length);Native.GlobalUnlock(memory);medium.tymed=TYMED.TYMED_HGLOBAL;medium.unionmember=memory;
   }
   public void GetDataHere(ref FORMATETC f,ref STGMEDIUM m){throw new COMException("Not supported",unchecked((int)0x80004001));}
@@ -89,10 +90,10 @@ namespace Termlume.FileDrag {
    // COM STA must pump while Electron downloads, otherwise Explorer's drag UI hangs.
    DateTime deadline=DateTime.UtcNow.AddHours(2);
    while(!response.WaitOne(0)){Application.DoEvents();Thread.Sleep(10);if(Cancelled || DateTime.UtcNow>deadline)throw new COMException("Transfer cancelled",unchecked((int)0x80004004));}
-   lock(responseLock){if(responseError!=null)throw new IOException(responseError);if(String.IsNullOrEmpty(responsePath)||!Path.IsPathRooted(responsePath)||!File.Exists(responsePath))throw new IOException("Downloaded file unavailable");return responsePath;}
+   lock(responseLock){if(responseError!=null)throw new IOException(responseError);if(String.IsNullOrEmpty(responsePath)||!Path.IsPathRooted(responsePath)||(!File.Exists(responsePath)&&!Directory.Exists(responsePath)))throw new IOException("Downloaded file unavailable");return responsePath;}
   }
   [DllImport("user32.dll")] static extern void keybd_event(byte key,byte scan,uint flags,UIntPtr extra);
-  static void Start(string id,string name,string sourceWindow){
+  static void Start(string id,string name,string sourceWindow,object manifest){
    if(activeId!=null){Send(new{type="result",id=id,error="Another drag is active"});return;}
    if((Native.GetAsyncKeyState(1)&0x8000)==0){Send(new{type="result",id=id,dropped=false});return;}
    // Chromium owns the HTML drag's OLE loop until Escape is delivered. End that
@@ -104,13 +105,13 @@ namespace Termlume.FileDrag {
     marker.Show();
     ulong rawWindow;IntPtr ownerWindow=!String.IsNullOrEmpty(sourceWindow)&&UInt64.TryParse(sourceWindow,System.Globalization.NumberStyles.HexNumber,null,out rawWindow)?new IntPtr(unchecked((long)rawWindow)):Native.GetForegroundWindow();
     uint ownerProcess;uint sourceThread=Native.GetWindowThreadProcessId(ownerWindow,out ownerProcess),currentThread=Native.GetCurrentThreadId();bool attached=sourceThread!=0 && sourceThread!=currentThread && Native.AttachThreadInput(currentThread,sourceThread,true);Trace("input attached="+attached);
-    try{Trace("drag start "+id);uint effect;int hr=Native.DoDragDrop(new VirtualFile(id,name),new DropSource(),1,out effect);Trace("drag result "+hr+" effect="+effect);if(hr<0)Marshal.ThrowExceptionForHR(hr);Send(new{type="result",id=id,dropped=hr==0x40100 && effect==1});}
+    try{Trace("drag start "+id);uint effect;int hr=Native.DoDragDrop(new VirtualFile(id,name,manifest),new DropSource(),1,out effect);Trace("drag result "+hr+" effect="+effect);if(hr<0)Marshal.ThrowExceptionForHR(hr);Send(new{type="result",id=id,dropped=hr==0x40100 && effect==1});}
     catch(Exception error){Send(new{type="result",id=id,error=error.Message});}
     finally{if(attached)Native.AttachThreadInput(currentThread,sourceThread,false);activeId=null;marker.Close();}
    }
   }
   static void Read(){try{string line;var json=new JavaScriptSerializer();while((line=Console.ReadLine())!=null){var m=json.Deserialize<Dictionary<string,object>>(line);string type=(string)m["type"];
-   if(type=="drag"){string id=(string)m["id"],name=(string)m["name"];Guid parsed;if(!Guid.TryParse(id,out parsed)||name.Length==0||name.Length>259||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0)throw new ArgumentException("Invalid transfer request");host.BeginInvoke((Action)delegate{Start(id,name,m.ContainsKey("sourceWindow")?(string)m["sourceWindow"]:null);});}
+   if(type=="drag"){string id=(string)m["id"],name=(string)m["name"];Guid parsed;if(!Guid.TryParse(id,out parsed)||name.Length==0||name.Length>259||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0)throw new ArgumentException("Invalid transfer request");host.BeginInvoke((Action)delegate{Start(id,name,m.ContainsKey("sourceWindow")?(string)m["sourceWindow"]:null,m.ContainsKey("entries")?m["entries"]:null);});}
    else if(type=="materialized"){if((string)m["id"]!=activeId)continue;lock(responseLock){responsePath=m.ContainsKey("path")?(string)m["path"]:null;responseError=m.ContainsKey("error")?(string)m["error"]:null;}response.Set();}
    else if(type=="cancel")Cancelled=true;
    else if(type=="close")break;

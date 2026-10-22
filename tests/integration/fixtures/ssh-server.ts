@@ -10,6 +10,7 @@ export async function sshFixture(
     hostKey?: string
     publicKey?: Buffer
     password?: string
+    username?: string
     port?: number
     sftpRoot?: string
     scpRoot?: string
@@ -254,6 +255,7 @@ export async function sshFixture(
     client.on('close', () => clients.delete(client))
     client.on('authentication', (context) => {
       authentications++
+      if (options.username && context.username !== options.username) return context.reject(['password', 'publickey'])
       if (context.method === 'password') passwordAuthentications++
       if (
         context.method === 'password' &&

@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { HighlightRulesEditor } from '../settings/HighlightRulesEditor'
+import type { HighlightRule } from '../../../../shared/highlight-rules'
 import { X, Server, KeyRound } from 'lucide-react'
 import type { HostProfile, SshIdentity } from '../../../../shared/contracts'
 import { hostSchema } from '../../../../shared/schemas'
@@ -12,6 +14,7 @@ interface Props {
   initialProtocol?: HostProfile['protocol']
 }
 export function HostEditor({ profile, onSave, onClose, quick = false, initialProtocol }: Props) {
+  const usernameEdited = useRef(false)
   const [protocol, setProtocol] = useState<HostProfile['protocol']>(
     profile?.protocol || initialProtocol || 'ssh',
   )
@@ -32,9 +35,11 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     )
   const [method, setMethod] = useState<SshIdentity['method']>(
     profile?.protocol === 'ssh' || profile?.protocol === 'sftp'
-      ? profile.auth === 'key'
-        ? 'key'
-        : 'password'
+      ? profile.agentEndpoint
+        ? 'agent'
+        : profile.auth === 'key'
+          ? 'key'
+          : 'password'
       : 'password',
   )
   const [identities, setIdentities] = useState<SshIdentity[]>([]),
@@ -46,6 +51,9 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     profile?.protocol === 'ftp' ? profile.security : 'explicit-tls',
   )
   const [tagsInput, setTagsInput] = useState((profile?.tags || []).join(', '))
+  const [highlightRules, setHighlightRules] = useState<HighlightRule[] | undefined>(
+    profile?.highlightRules,
+  )
   const [secret, setSecret] = useState(''),
     [group, setGroup] = useState(profile?.group || ''),
     [favorite, setFavorite] = useState(profile?.favorite || false),
@@ -58,6 +66,20 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     )
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (profile || !window.terminalApi?.settings?.get) return
+    let active = true
+    window.terminalApi.settings
+      .get()
+      .then((settings) => {
+        if (active && !usernameEdited.current && settings.lastUsername)
+          setUsername(settings.lastUsername)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
   useEffect(() => {
     const api = window.terminalApi?.identities
     if (!api) return
@@ -76,6 +98,11 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     setMethod(identity.method)
     setAuth(identity.method === 'password' ? 'password' : 'key')
     setKeyPath(identity.keyPath || '')
+    if (identity.username) {
+      usernameEdited.current = true
+      setUsername(identity.username)
+    }
+    setSecret('')
   }, [identityId, identities, discovered])
   async function save(event: React.FormEvent) {
     event.preventDefault()
@@ -83,11 +110,11 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     setBusy(true)
     try {
       let selectedIdentity: SshIdentity | undefined
-      if ((protocol === 'ssh' || protocol === 'sftp') && !quick) {
+      if ((protocol === 'ssh' || protocol === 'sftp') && !quick && identityId) {
         const existing = [...identities, ...discovered].find((item) => item.id === identityId)
         selectedIdentity = {
           ...existing,
-          id: existing?.id || identityId || crypto.randomUUID(),
+          id: existing?.id || identityId,
           name: existing?.name || name || `${username}@${host}`,
           method,
           keyPath: method === 'key' ? keyPath : undefined,
@@ -96,6 +123,8 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
         }
       }
       const base = {
+        highlightRules,
+        monitoringItems: profile?.monitoringItems,
         id: profile?.id || crypto.randomUUID(),
         name: name || host || distribution,
         group,
@@ -113,11 +142,24 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               protocol,
               host,
               port,
-              username,
+              username: selectedIdentity?.username || username,
               auth: method === 'password' ? 'password' : 'key',
               identityId: selectedIdentity?.id,
+              agentEndpoint:
+                !selectedIdentity &&
+                method === 'agent' &&
+                (profile?.protocol === 'ssh' || profile?.protocol === 'sftp')
+                  ? profile.agentEndpoint
+                  : undefined,
+              agentFingerprint:
+                !selectedIdentity &&
+                method === 'agent' &&
+                (profile?.protocol === 'ssh' || profile?.protocol === 'sftp')
+                  ? profile.agentFingerprint
+                  : undefined,
               keyPath: method === 'key' ? keyPath : undefined,
               secretRef:
+                !selectedIdentity &&
                 (profile?.protocol === 'ssh' || profile?.protocol === 'sftp') &&
                 profile.auth === auth
                   ? profile.secretRef
@@ -142,12 +184,19 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
       if (
         (protocol === 'ssh' || protocol === 'sftp') &&
         method === 'agent' &&
-        !selectedIdentity?.agentEndpoint
+        !selectedIdentity?.agentEndpoint &&
+        !((profile?.protocol === 'ssh' || profile?.protocol === 'sftp') && profile.agentEndpoint)
       )
         throw new Error('Выберите SSH-агент из списка обнаруженных идентичностей')
-      if (selectedIdentity && window.terminalApi?.identities)
+      if (
+        selectedIdentity &&
+        discovered.some((item) => item.id === selectedIdentity.id) &&
+        window.terminalApi?.identities
+      )
         await window.terminalApi.identities.save(selectedIdentity)
-      await onSave(value, quick && secret ? secret : undefined)
+      await onSave(value, !selectedIdentity && secret ? secret : undefined)
+      if (!quick && !selectedIdentity && secret)
+        await window.terminalApi.hosts.setSecret(value.id, secret)
       onClose()
     } catch (error) {
       setError(
@@ -257,9 +306,15 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
           <>
             {!quick && (
               <label>
-                Сохранённая идентичность
-                <select value={identityId} onChange={(event) => setIdentityId(event.target.value)}>
-                  <option value="">Создать идентичность</option>
+                Учётные данные
+                <select
+                  value={identityId}
+                  onChange={(event) => {
+                    setIdentityId(event.target.value)
+                    setSecret('')
+                  }}
+                >
+                  <option value="">Собственные для этого подключения</option>
                   {identities.map((identity) => (
                     <option key={identity.id} value={identity.id}>
                       {identity.name}
@@ -277,59 +332,75 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               Пользователь
               <input
                 required
+                disabled={
+                  !!identityId &&
+                  identities.some((item) => item.id === identityId && !!item.username)
+                }
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(event) => {
+                  usernameEdited.current = true
+                  setUsername(event.target.value)
+                }}
                 autoComplete="off"
               />
             </label>
-            <div className="auth-selector">
-              <button
-                type="button"
-                className={method === 'password' ? 'selected' : ''}
-                onClick={() => {
-                  setAuth('password')
-                  setMethod('password')
-                  setIdentityId('')
-                  setSecret('')
-                }}
-              >
-                <Server size={14} />
-                Пароль
-              </button>
-              <button
-                type="button"
-                className={method === 'key' ? 'selected' : ''}
-                onClick={() => {
-                  setAuth('key')
-                  setMethod('key')
-                  setIdentityId('')
-                  setSecret('')
-                }}
-              >
-                <KeyRound size={14} />
-                SSH-ключ
-              </button>
-              {!quick && (
+            {identityId && (
+              <p className="muted small">
+                Общие данные меняются в настройках → Учётные данные. Изменения применяются ко всем
+                связанным подключениям.
+              </p>
+            )}
+            {!identityId && (
+              <div className="auth-selector">
                 <button
                   type="button"
-                  className={method === 'agent' ? 'selected' : ''}
+                  className={method === 'password' ? 'selected' : ''}
                   onClick={() => {
-                    setAuth('key')
-                    setMethod('agent')
+                    setAuth('password')
+                    setMethod('password')
                     setIdentityId('')
                     setSecret('')
                   }}
                 >
-                  <KeyRound size={14} /> SSH-агент
+                  <Server size={14} />
+                  Пароль
                 </button>
-              )}
-            </div>
+                <button
+                  type="button"
+                  className={method === 'key' ? 'selected' : ''}
+                  onClick={() => {
+                    setAuth('key')
+                    setMethod('key')
+                    setIdentityId('')
+                    setSecret('')
+                  }}
+                >
+                  <KeyRound size={14} />
+                  SSH-ключ
+                </button>
+                {!quick && (
+                  <button
+                    type="button"
+                    className={method === 'agent' ? 'selected' : ''}
+                    onClick={() => {
+                      setAuth('key')
+                      setMethod('agent')
+                      setIdentityId('')
+                      setSecret('')
+                    }}
+                  >
+                    <KeyRound size={14} /> SSH-агент
+                  </button>
+                )}
+              </div>
+            )}
             {method === 'key' && (
               <label>
                 Приватный ключ
                 <div className="key-path-row">
                   <input
                     required
+                    disabled={!!identityId}
                     value={keyPath}
                     onChange={(event) => setKeyPath(event.target.value)}
                     placeholder="C:\\Users\\...\\.ssh\\id_ed25519"
@@ -337,6 +408,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
                   <button
                     type="button"
                     className="secondary-button"
+                    disabled={!!identityId}
                     onClick={() =>
                       window.terminalApi?.identities
                         ?.chooseKey()
@@ -349,7 +421,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
                 </div>
               </label>
             )}
-            {quick && method !== 'agent' && (
+            {!identityId && method !== 'agent' && (
               <label>
                 {auth === 'key' ? 'Passphrase' : 'Пароль'}
                 <input
@@ -385,7 +457,10 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               <input
                 required
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(event) => {
+                  usernameEdited.current = true
+                  setUsername(event.target.value)
+                }}
                 autoComplete="off"
               />
             </label>
@@ -473,6 +548,9 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               />
               Избранное
             </label>
+            {(protocol === 'ssh' || protocol === 'telnet' || protocol === 'wsl') && (
+              <HighlightRulesEditor inherited value={highlightRules} onChange={setHighlightRules} />
+            )}
           </>
         )}
         {error && (

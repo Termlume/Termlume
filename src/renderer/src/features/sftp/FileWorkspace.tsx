@@ -11,8 +11,10 @@ export function FileWorkspace({
   name,
   protocol,
   active,
+  askDownloadDirectory,
 }: {
   active: boolean
+  askDownloadDirectory?: boolean
   sessionId: string
   state: SessionState
   name: string
@@ -32,6 +34,7 @@ export function FileWorkspace({
         )}
       </div>
       <SftpBrowser
+        askDownloadDirectory={askDownloadDirectory}
         sessionId={state === 'connected' ? sessionId : undefined}
         mode="two-panel"
         terminalAvailable={false}

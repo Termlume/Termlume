@@ -53,9 +53,11 @@ it('savesInteractionPreferencesFromAppearanceSettings', async () => {
   const onSaved = vi.fn()
   render(<Appearance settings={saved} onSaved={onSaved} onClose={() => {}} />)
 
+  fireEvent.click(screen.getByRole('tab', { name: 'Файлы', exact: true }))
   fireEvent.change(screen.getByLabelText('Режим файлового браузера'), {
     target: { value: 'remote-only' },
   })
+  fireEvent.click(screen.getByRole('tab', { name: 'Терминал', exact: true }))
   fireEvent.change(screen.getByLabelText('Действия мыши в терминале'), {
     target: { value: 'manual' },
   })

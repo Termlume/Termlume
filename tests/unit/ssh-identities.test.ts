@@ -18,6 +18,19 @@ async function temp() {
 }
 
 describe('SSH identities', () => {
+  it('preserves a shared login and arbitrary company name without storing plaintext fields', async () => {
+    const root = await temp(),
+      repository = new IdentityRepository(join(root, 'identities.json'))
+    await repository.save({
+      id: 'c8019a9d-5f81-4836-8b97-cb6c44b19c1d',
+      name: 'ООО Компания',
+      username: 'deploy',
+      method: 'password',
+      password: 'private-password',
+    } as never)
+    expect(await repository.list()).toMatchObject([{ username: 'deploy', name: 'ООО Компания' }])
+    expect(await readFile(join(root, 'identities.json'), 'utf8')).not.toContain('private-password')
+  })
   it('persists only identity metadata and secret references', async () => {
     const root = await temp(),
       repository = new IdentityRepository(join(root, 'identities.json'))

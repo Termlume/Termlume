@@ -23,6 +23,7 @@ import { FileWorkspace } from '../features/sftp/FileWorkspace'
 import { enqueueSelection } from '../features/sftp/enqueue-selection'
 import { Transfers } from '../features/sftp/Transfers'
 import { MonitoringPanel } from '../features/monitoring/MonitoringPanel'
+import { useMonitorPreferences } from '../features/monitoring/useMonitorPreferences'
 import { ru } from './ru'
 import './styles.css'
 import { ResizeHandle } from './ResizeHandle'
@@ -72,6 +73,13 @@ export default function App() {
     (tab) => tab.profile.protocol !== 'sftp' && tab.profile.protocol !== 'ftp',
   )
   const activeHost = activeTab?.profile.protocol === 'local' ? undefined : activeTab?.profile
+  const monitorPreferences = useMonitorPreferences(
+    activeHost,
+    catalog.hosts,
+    settings?.monitoringItems,
+    catalog.refresh,
+    setError,
+  )
   const challenge = sessions.challenges[0]
   const answerChallenge = async (
     answer: Parameters<typeof window.terminalApi.sessions.answer>[1],
@@ -350,6 +358,12 @@ export default function App() {
                       sessionId={id}
                       active={id === sessions.active}
                       settings={settings}
+                      highlightRules={(() => {
+                        const profile = sessions.tabs.find((tab) => tab.id === id)?.profile
+                        if (!profile || !('id' in profile)) return undefined
+                        return (catalog.hosts.find((host) => host.id === profile.id) ?? profile)
+                          .highlightRules
+                      })()}
                       output={sessions.output}
                       onFontSizeChange={(terminalFontSize) => {
                         setSettings((current) =>
@@ -373,6 +387,7 @@ export default function App() {
                   hidden={tab.id !== sessions.active}
                 >
                   <FileWorkspace
+                    askDownloadDirectory={settings?.askDownloadDirectory}
                     active={tab.id === sessions.active}
                     sessionId={tab.id}
                     state={tab.state}
@@ -385,8 +400,9 @@ export default function App() {
               <div className="monitor-under-terminal" aria-label="Мониторинг под терминалом">
                 <MonitoringPanel
                   placement="under-terminal"
-                  visibleItems={settings?.monitoringItems}
-                  onVisibleItemsChange={(monitoringItems) => savePreference({ monitoringItems })}
+                  visibleItems={monitorPreferences.items}
+                  onVisibleItemsChange={monitorPreferences.change}
+                  onResetItems={monitorPreferences.reset}
                   activeServerLabel={activeHost?.name}
                   intervalSeconds={settings?.monitoringIntervalSeconds}
                   sessionId={activeTab?.id}
@@ -456,6 +472,9 @@ export default function App() {
                 </div>
               </div>
               <SftpBrowser
+                askDownloadDirectory={settings?.askDownloadDirectory}
+                followTerminalDirectory={settings?.followTerminalDirectory ?? true}
+                terminalDirectory={activeTab ? sessions.directories[activeTab.id] : undefined}
                 localShell={
                   activeTab?.profile.protocol === 'local' ? activeTab.profile.shell : undefined
                 }
@@ -535,6 +554,9 @@ export default function App() {
               </div>
               <MonitoringPanel
                 intervalSeconds={settings?.monitoringIntervalSeconds}
+                visibleItems={monitorPreferences.items}
+                onVisibleItemsChange={monitorPreferences.change}
+                onResetItems={monitorPreferences.reset}
                 sessionId={activeTab?.id}
                 profile={activeHost}
                 connected={activeTab?.state === 'connected'}

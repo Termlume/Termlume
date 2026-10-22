@@ -1,10 +1,6 @@
-import { sessionSourceText } from './session-source'
-import { Activity, Clock3, HardDrive, ArrowDown, ArrowUp } from 'lucide-react'
-import type { DiskMetrics, HostProfile, Metric, MemoryUsage } from '../../../../shared/contracts'
+import { Activity, HardDrive } from 'lucide-react'
+import type { DiskMetrics, HostProfile, Metric } from '../../../../shared/contracts'
 import { useMonitoring } from './useMonitoring'
-import { MetricCard } from './MetricCard'
-import { HistoryChart } from './HistoryChart'
-import { bytes } from './format'
 import { CapacityBar } from './CapacityBar'
 import type { MonitorItem } from '../../../../shared/monitoring-items'
 import { MonitoringBar } from './MonitoringBar'
@@ -44,7 +40,6 @@ export function DiskCard({
     </section>
   )
 }
-const pending = <T,>(): Metric<T> => ({ status: 'warming-up', error: 'Ожидание данных сервера' })
 export function MonitoringPanel({
   sessionId,
   profile,
@@ -54,6 +49,7 @@ export function MonitoringPanel({
   activeServerLabel,
   visibleItems,
   onVisibleItemsChange,
+  onResetItems,
 }: {
   sessionId?: string
   profile?: HostProfile
@@ -63,10 +59,10 @@ export function MonitoringPanel({
   activeServerLabel?: string
   visibleItems?: MonitorItem[]
   onVisibleItemsChange?: (items: MonitorItem[]) => void
+  onResetItems?: () => void
 }) {
   const enabled = !!profile && profile.protocol === 'ssh' && connected
-  const { snapshot, error, retry } = useMonitoring(sessionId, enabled, true),
-    history = snapshot?.history || []
+  const { snapshot, error, retry } = useMonitoring(sessionId, enabled, true)
   if (!enabled)
     return (
       <div className="panel-empty">
@@ -81,13 +77,8 @@ export function MonitoringPanel({
         </p>
       </div>
     )
-  const content = (
-    <div className="monitoring-content">
-      <div className="monitor-server">
-        <span className="status-dot" />
-        <span>{profile.name}</span>
-        <span className="monitor-live">Обновление: {intervalSeconds} с</span>
-      </div>
+  return (
+    <div className={placement === 'sidebar' ? 'monitoring-content' : 'monitoring-bottom'}>
       {error && <p className="error-message">{error}</p>}
       {snapshot && snapshot.state !== 'sampling' && (
         <div className="monitor-warning">
@@ -99,147 +90,20 @@ export function MonitoringPanel({
           )}
         </div>
       )}
-      <MetricCard
-        label="ПРОЦЕССОР"
-        metric={snapshot?.cpuPercent || pending<number>()}
-        format={(value) => value.toFixed(1) + '%'}
-      >
-        <HistoryChart
-          values={history.map((point) => point.cpuPercent)}
-          label="Загрузка CPU за последние 5 минут"
-        />
-      </MetricCard>
-      <MetricCard
-        label="ОПЕРАТИВНАЯ ПАМЯТЬ"
-        metric={snapshot?.ram || pending<MemoryUsage>()}
-        format={(value) => bytes(value.used)}
-      >
-        <CapacityBar
-          label="Оперативная память"
-          usage={snapshot?.ram.status === 'ok' ? snapshot.ram.value : undefined}
-        />
-      </MetricCard>
-      <MetricCard
-        label="SWAP"
-        metric={snapshot?.swap || pending<MemoryUsage>()}
-        format={(value) => (value.total === 0 ? 'Не настроен' : bytes(value.used))}
-      >
-        <CapacityBar
-          label="Swap"
-          usage={snapshot?.swap.status === 'ok' ? snapshot.swap.value : undefined}
-        />
-      </MetricCard>
-      <section className="metric-card">
-        <div className="metric-label">
-          СЕТЬ
-          <span className={'metric-dot ' + (snapshot?.network.status || 'warming-up')} />
-        </div>
-        <div className="network-values">
-          <span>
-            <ArrowDown size={12} />
-            {snapshot?.network.status === 'ok'
-              ? bytes(snapshot.network.value!.rx) + '/с'
-              : snapshot?.network.status === 'unavailable'
-                ? 'Недоступно'
-                : 'Измерение…'}
-          </span>
-          <span>
-            <ArrowUp size={12} />
-            {snapshot?.network.status === 'ok' ? bytes(snapshot.network.value!.tx) + '/с' : '—'}
-          </span>
-        </div>
-        <HistoryChart
-          values={history.map((point) => point.rx)}
-          max={0}
-          color="var(--green)"
-          label="Входящий сетевой трафик"
-        />
-        <HistoryChart
-          values={history.map((point) => point.tx)}
-          max={0}
-          color="var(--accent)"
-          label="Исходящий сетевой трафик"
-        />
-        {snapshot?.network.error && <p className="metric-reason">{snapshot.network.error}</p>}
-      </section>
-      <DiskCard disks={snapshot?.disks} sampledAt={snapshot?.disks.sampledAt} />
-      <section className="metric-card">
-        <div className="metric-label">ПОЛЬЗОВАТЕЛИ И СЕАНСЫ</div>
-        {snapshot?.users?.status === 'ok' ? (
-          <>
-            <strong>
-              {new Set(snapshot.users.value!.sessions.map((s) => s.user)).size} пользователей ·{' '}
-              {snapshot.users.value!.sessions.length} сеансов
-            </strong>
-            <div className="monitor-users-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Пользователь</th>
-                    <th>Терминал</th>
-                    <th>Вход (время сервера)</th>
-                    <th>Адрес</th>
-                    <th>Источник</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.users.value!.sessions.map((s, i) => (
-                    <tr key={i}>
-                      <td>{s.user}</td>
-                      <td>
-                        {s.terminal ||
-                          (s.source === 'current-connection' ? 'Текущее SSH-подключение' : '—')}
-                      </td>
-                      <td>{s.loginText || '—'}</td>
-                      <td>{s.from || '—'}</td>
-                      <td>{sessionSourceText(s.source)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : (
-          <p className="metric-reason">{snapshot?.users?.error || 'Ожидание данных'}</p>
-        )}
-        <p className="metric-reason">
-          Данные who и доступных источников сеансов сервера. Текущее SSH-подключение может быть
-          показано отдельно, если сервер не ведёт учёт входов. Обновление: 30 секунд.
-        </p>
-      </section>
-      <div className="uptime">
-        <Clock3 size={13} />
-        <span>Uptime</span>
-        <strong>
-          {snapshot?.uptime.status === 'ok'
-            ? Math.floor(snapshot.uptime.value! / 86400) +
-              'д ' +
-              Math.floor((snapshot.uptime.value! % 86400) / 3600) +
-              'ч ' +
-              Math.floor((snapshot.uptime.value! % 3600) / 60) +
-              'м'
-            : 'Недоступно'}
-        </strong>
-      </div>
-      <p className="monitor-footer">
-        {snapshot
-          ? 'Измерено ' + new Date(snapshot.sampledAt).toLocaleTimeString('ru-RU')
-          : 'Соединение с сервером…'}
-        <br />
-        Графики за последние 5 минут
-      </p>
-    </div>
-  )
-  if (placement === 'sidebar') return content
-  return (
-    <div className="monitoring-bottom">
       <MonitoringBar
         key={sessionId}
         snapshot={snapshot}
         server={activeServerLabel || profile.name}
         visibleItems={visibleItems}
         onVisibleItemsChange={onVisibleItemsChange}
+        onResetItems={onResetItems}
+        expanded={placement === 'sidebar'}
       />
+      {placement === 'sidebar' && (
+        <p className="monitor-footer">
+          Обновление: {intervalSeconds} с · Графики за последние 5 минут
+        </p>
+      )}
     </div>
   )
 }

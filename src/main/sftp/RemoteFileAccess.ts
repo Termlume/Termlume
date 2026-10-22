@@ -15,6 +15,7 @@ import type { FtpFileAccess } from './FtpFileAccess'
 import { ScpService } from './ScpService'
 import { TransferConflict, transferFile } from './transfer-file'
 import type { TransferJob } from './TransferQueue'
+import { withCollisions } from './collisions'
 
 const sftpCapabilities: FileCapabilities = {
   list: true,
@@ -123,11 +124,17 @@ export class RemoteFileAccess {
   async move(id: string, source: string, directory: string): Promise<void> {
     if (this.ftp?.matches(id)) return this.ftp.provider.move(id, source, directory)
     if ((await this.mode(id)) !== 'sftp')
-      throw new AppError('files-unsupported', 'Перемещение внутри сервера требует SFTP; подключитесь по SFTP')
+      throw new AppError(
+        'files-unsupported',
+        'Перемещение внутри сервера требует SFTP; подключитесь по SFTP',
+      )
     const stat = await this.sftp.lstat(id, source)
     const targetStat = await this.sftp.lstat(id, directory)
     if (stat.isSymbolicLink() || targetStat.isSymbolicLink() || !targetStat.isDirectory())
-      throw new AppError('unsafe-link', 'Перемещать можно только обычные файлы и папки без символических ссылок')
+      throw new AppError(
+        'unsafe-link',
+        'Перемещать можно только обычные файлы и папки без символических ссылок',
+      )
     const canonicalSource = await this.sftp.realpath(id, source)
     const canonicalDirectory = await this.sftp.realpath(id, directory)
     if (
@@ -200,6 +207,8 @@ export class RemoteFileAccess {
     progress: (done: number, total: number) => void,
   ): Promise<void> {
     signal.throwIfAborted()
+    if (request.direction === 'upload' && (await fs.lstat(request.source)).isSymbolicLink())
+      throw new AppError('symlink-unsupported', 'Передача символических ссылок не поддерживается')
     const source =
       request.direction === 'upload'
         ? await fs.lstat(await ensureLocalPath(request.localRoot, request.source))
@@ -271,6 +280,39 @@ export class RemoteFileAccess {
             if (error.code === 'ENOENT') return undefined
             throw error
           })
+    if (existing?.isDirectory() && !existing.isSymbolicLink()) {
+      // Merge directories; every child file retains its own collision decision.
+      const entries =
+        request.direction === 'upload'
+          ? await fs.readdir(request.source)
+          : (await this.list(request.sessionId, request.source)).entries.map((entry) => entry.name)
+      let completed = 0
+      for (const name of entries) {
+        validateFileName(name)
+        let childDone = 0
+        await this.transfer(
+          {
+            ...request,
+            source:
+              request.direction === 'upload'
+                ? join(request.source, name)
+                : posix.join(request.source, name),
+            target:
+              request.direction === 'upload'
+                ? posix.join(request.target, name)
+                : join(request.target, name),
+          },
+          signal,
+          (done, size) => {
+            childDone = done
+            progress(completed + done, total || size)
+          },
+        )
+        completed += childDone
+      }
+      progress(total, total)
+      return
+    }
     if (existing)
       throw new AppError(
         'directory-exists',
@@ -356,6 +398,15 @@ export class RemoteFileAccess {
     progress(total, total)
   }
   private async transferSingle(
+    request: TransferJob,
+    signal: AbortSignal,
+    progress: (done: number, total: number) => void,
+  ): Promise<void> {
+    return withCollisions(request, signal, (job) =>
+      this.transferSingleUnchecked(job, signal, progress),
+    )
+  }
+  private async transferSingleUnchecked(
     request: TransferJob,
     signal: AbortSignal,
     progress: (done: number, total: number) => void,

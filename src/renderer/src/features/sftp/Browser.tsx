@@ -9,6 +9,8 @@ import type {
 } from '../../../../shared/contracts'
 import { FileList, formatPermissions } from './FileList'
 import { PathBar } from './PathBar'
+import { enqueueSelection } from './enqueue-selection'
+import { terminalDirectoryPath } from './terminal-directory'
 import './files.css'
 type Side = 'local' | 'remote'
 export function SftpBrowser({
@@ -20,6 +22,9 @@ export function SftpBrowser({
   localShell,
   terminalAvailable = true,
   active = true,
+  askDownloadDirectory = false,
+  followTerminalDirectory = false,
+  terminalDirectory,
 }: {
   sessionId?: string
   mode?: 'two-panel' | 'remote-only'
@@ -28,6 +33,9 @@ export function SftpBrowser({
   localShell?: 'powershell' | 'cmd'
   active?: boolean
   terminalAvailable?: boolean
+  askDownloadDirectory?: boolean
+  followTerminalDirectory?: boolean
+  terminalDirectory?: string
   onTransfer?: (
     direction: 'upload' | 'download',
     source: string,
@@ -77,6 +85,8 @@ export function SftpBrowser({
   const activeSession = useRef(sessionId)
   activeSession.current = sessionId
   const remotePaths = useRef(new Map<string, string>())
+  const remoteHomes = useRef(new Map<string, string>())
+  const followedDirectory = useRef<string | undefined>(undefined)
   function activityKey(value: string) {
     return /^(?:[a-z]:[\\/]|\\\\)/i.test(value) ? value.replaceAll('\\', '/') : value
   }
@@ -184,6 +194,7 @@ export function SftpBrowser({
           setAccessMode(result.mode)
           setRemoteError('')
           remotePaths.current.set(sessionId, result.path)
+          if (!remoteHomes.current.has(sessionId)) remoteHomes.current.set(sessionId, result.path)
           setRemotePath(result.path)
         }
       })
@@ -197,6 +208,40 @@ export function SftpBrowser({
       live = false
     }
   }, [sessionId, requestedRemote, revision, refreshToken])
+  useEffect(() => {
+    if (!followTerminalDirectory || !terminalAvailable) {
+      followedDirectory.current = undefined
+      return
+    }
+    if (!active || !sessionId || !terminalDirectory || !accessMode) return
+    const home = remoteHomes.current.get(sessionId)
+    if (!home) return
+    const key = sessionId + ':' + terminalDirectory
+    if (followedDirectory.current === key) return
+    followedDirectory.current = key
+    const directory = terminalDirectoryPath(terminalDirectory, home, accessMode)
+    if (directory) setRequestedRemote(directory)
+  }, [
+    followTerminalDirectory,
+    terminalAvailable,
+    terminalDirectory,
+    sessionId,
+    accessMode,
+    active,
+    remotePath,
+  ])
+  async function download(
+    entries: FileEntry[],
+    choose = mode === 'remote-only' || askDownloadDirectory,
+  ) {
+    if (!sessionId) return
+    try {
+      await enqueueSelection(sessionId, 'download', remotePath, localPath, entries, choose)
+      setTransferError('')
+    } catch (error) {
+      setTransferError(String(error))
+    }
+  }
   function path(side: Side, name?: string) {
     const base = side === 'local' ? localPath : remotePath
     const separator = side === 'local' || accessMode === 'local' || /^\\\\/.test(base) ? '\\' : '/'
@@ -308,12 +353,14 @@ export function SftpBrowser({
     try {
       const files = await window.terminalApi.files.chooseUpload()
       if (files.length) setRequestedLocal(await window.terminalApi.files.localRoot())
+      const batchId = crypto.randomUUID()
       for (const source of files) {
         const name = source.split(/[\\/]/).at(-1)
         if (!name) continue
         await window.terminalApi.files.enqueue({
           sessionId,
           direction: 'upload',
+          batchId,
           source,
           target: remotePath.replace(/[\\/]$/, '') + (/^\\\\/.test(remotePath) ? '\\' : '/') + name,
           overwrite: false,
@@ -413,30 +460,39 @@ export function SftpBrowser({
                         ? 'Локальные файлы'
                         : 'Удалённый сервер'}
                 </strong>
-                <button
-                  className="transfer-button"
-                  disabled={
-                    !onTransfer ||
-                    !sessionId ||
-                    (side === 'local'
-                      ? remoteCapabilities?.upload === false
-                      : remoteCapabilities?.download === false) ||
-                    !(side === 'local' ? selectedLocal : selectedRemote).length
-                  }
-                  onClick={() =>
-                    onTransfer?.(
-                      side === 'local' ? 'upload' : 'download',
-                      path(side),
-                      path(side === 'local' ? 'remote' : 'local'),
-                      (side === 'local' ? local : remote).filter((entry) =>
-                        (side === 'local' ? selectedLocal : selectedRemote).includes(entry.name),
-                      ),
-                    )
-                  }
-                >
-                  {side === 'local' ? <ArrowUpFromLine size={12} /> : <ArrowDownToLine size={12} />}{' '}
-                  {side === 'local' ? 'Загрузить' : 'Скачать'}
-                </button>
+                {(side === 'local' || (mode === 'two-panel' && !askDownloadDirectory)) && (
+                  <button
+                    className="transfer-button"
+                    disabled={
+                      (side === 'local' && !onTransfer) ||
+                      !sessionId ||
+                      (side === 'local'
+                        ? remoteCapabilities?.upload === false
+                        : remoteCapabilities?.download === false) ||
+                      !(side === 'local' ? selectedLocal : selectedRemote).length
+                    }
+                    onClick={() =>
+                      side === 'remote'
+                        ? void download(
+                            remote.filter((entry) => selectedRemote.includes(entry.name)),
+                            false,
+                          )
+                        : onTransfer?.(
+                            'upload',
+                            path('local'),
+                            path('remote'),
+                            local.filter((entry) => selectedLocal.includes(entry.name)),
+                          )
+                    }
+                  >
+                    {side === 'local' ? (
+                      <ArrowUpFromLine size={12} />
+                    ) : (
+                      <ArrowDownToLine size={12} />
+                    )}{' '}
+                    {side === 'local' ? 'Загрузить' : 'Скачать'}
+                  </button>
+                )}
                 {side === 'remote' && mode === 'remote-only' && (
                   <button
                     className="transfer-button"
@@ -444,6 +500,22 @@ export function SftpBrowser({
                     onClick={() => void uploadFiles()}
                   >
                     <Upload size={12} /> Загрузить файлы…
+                  </button>
+                )}
+                {side === 'remote' && (
+                  <button
+                    className="transfer-button"
+                    disabled={
+                      !sessionId || !selectedRemote.length || remoteCapabilities?.download === false
+                    }
+                    onClick={() =>
+                      void download(
+                        remote.filter((entry) => selectedRemote.includes(entry.name)),
+                        true,
+                      )
+                    }
+                  >
+                    Скачать в…
                   </button>
                 )}
               </div>
@@ -595,13 +667,12 @@ export function SftpBrowser({
             ...(context.side === 'remote' &&
             (context.entry.type === 'file' || context.entry.type === 'directory') &&
             !context.entry.isSymlink &&
-            onTransfer &&
             remoteCapabilities?.download !== false
               ? [
                   {
-                    label: 'Скачать',
-                    run: () =>
-                      onTransfer('download', path('remote'), path('local'), [context.entry]),
+                    label:
+                      mode === 'remote-only' || askDownloadDirectory ? 'Скачать в…' : 'Скачать',
+                    run: () => download([context.entry]),
                   },
                 ]
               : []),

@@ -73,7 +73,10 @@ export class LocalFilesService {
     const stat = await fs.lstat(source)
     const destinationDirectory = await ensureLocalPath(this.root, directory)
     if (!(await fs.stat(destinationDirectory)).isDirectory() || stat.isSymbolicLink())
-      throw new AppError('unsafe-link', 'Перемещать можно только обычные файлы и папки без символических ссылок')
+      throw new AppError(
+        'unsafe-link',
+        'Перемещать можно только обычные файлы и папки без символических ссылок',
+      )
     const canonicalSource = await fs.realpath(source)
     if (canonicalSource === (await fs.realpath(this.root)))
       throw new AppError('root-operation', 'Нельзя переместить корневую папку')
@@ -127,10 +130,12 @@ export class LocalFilesService {
         throw new AppError('file-missing', 'Скачанный файл больше не существует')
       throw error
     }
-    if (!original.isFile() || original.isSymbolicLink())
+    if ((!original.isFile() && !original.isDirectory()) || original.isSymbolicLink())
       throw new AppError('not-a-file', 'Открывать можно только завершённые обычные файлы')
-    const target = await ensureLocalPath(root, path),
-      error = await openPath(target)
+    const target = await ensureLocalPath(root, path)
+    if (target === await fs.realpath(root))
+      throw new AppError('root-operation', 'Корневая папка не является результатом скачивания')
+    const error = await openPath(target)
     if (error) throw new AppError('open-failed', error)
   }
 }

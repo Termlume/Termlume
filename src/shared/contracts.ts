@@ -9,6 +9,8 @@ export type SessionState =
   | 'error'
   | 'closing'
 interface HostBase {
+  highlightRules?: import('./highlight-rules').HighlightRule[]
+  monitoringItems?: import('./monitoring-items').MonitorItem[]
   tags?: string[]
   id: string
   name: string
@@ -25,6 +27,8 @@ export type HostProfile = HostBase &
         username: string
         auth: 'password' | 'key'
         identityId?: string
+        agentEndpoint?: string
+        agentFingerprint?: string
         keyPath?: string
         secretRef?: string
         monitoringEnabled: boolean
@@ -36,6 +40,8 @@ export type HostProfile = HostBase &
         username: string
         auth: 'password' | 'key'
         identityId?: string
+        agentEndpoint?: string
+        agentFingerprint?: string
         keyPath?: string
         secretRef?: string
       }
@@ -64,6 +70,7 @@ export type SessionProfile = HostProfile | LocalShellProfile
 export interface SshIdentity {
   id: string
   name: string
+  username?: string
   method: 'password' | 'key' | 'agent'
   secretRef?: string
   keyPath?: string
@@ -72,6 +79,7 @@ export interface SshIdentity {
 }
 export type SafeError = { code: string; message: string; retryable: boolean }
 export type AdapterEvent =
+  | { type: 'cwd'; path: string }
   | { type: 'state'; state: SessionState }
   | { type: 'data'; data: Uint8Array }
   | { type: 'error'; error: SafeError }
@@ -94,6 +102,7 @@ export type AuthAnswer = { kind: 'auth'; password?: string; passphrase?: string;
 export type TrustAnswer = { kind: 'trust'; accept: boolean; replaceExisting: boolean }
 export type TransferState = 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
 export interface TransferRequest {
+  batchId?: string
   sessionId: string
   direction: 'upload' | 'download'
   source: string
@@ -161,6 +170,7 @@ export interface SystemMetrics {
   nfsMounts?: { source: string; mount: string; type: string }[]
 }
 export interface MetricSnapshot {
+  temperatures?: Metric<{ id: string; label: string; celsius: number }[]>
   system?: Metric<SystemMetrics>
   users?: Metric<{
     sessions: {
@@ -272,6 +282,11 @@ export interface TerminalMacro {
   description: string
 }
 export interface Settings {
+  followTerminalDirectory?: boolean
+  lastUsername?: string
+  highlightRules?: import('./highlight-rules').HighlightRule[]
+  downloadDirectory?: string
+  askDownloadDirectory?: boolean
   macros?: TerminalMacro[]
   dismissedUpdateVersion?: string
   updateChannelPolicy?: 1

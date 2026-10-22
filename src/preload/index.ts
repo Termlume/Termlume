@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('terminalApi', {
     },
   },
   files: {
+    downloadDestination: (choose?: boolean) => call('files.downloadDestination', { choose }),
+    showLocal: (path: string) => call('files.showLocal', { path }),
     onActivity: (listener: (event: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, value: unknown) => listener(value)
       ipcRenderer.on('terminal:file-activity', handler)
@@ -99,8 +101,8 @@ contextBridge.exposeInMainWorld('terminalApi', {
   },
   identities: {
     list: () => call('identities.list'),
-    save: (identity: unknown) => call('identities.save', { identity }),
-    remove: (id: string) => call('identities.remove', { id }),
+    save: (identity: unknown, secret?: string) => call('identities.save', { identity, secret }),
+    remove: (id: string, options?: { replacementId?: string; detach?: boolean; confirmMerge?: boolean }) => call('identities.remove', { id, ...options }),
     chooseKey: () => call('identity.chooseKey'),
     discoverSsh: () => call('ssh.discoverIdentities'),
   },

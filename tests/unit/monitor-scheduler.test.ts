@@ -59,6 +59,7 @@ it('fastPollsEveryThreeSecondsAndDisksEveryThirty', async () => {
           commands.loginSessions,
           commands.processSessions,
           commands.system,
+          commands.temperatures,
         ].includes(command)
       )
         return ''

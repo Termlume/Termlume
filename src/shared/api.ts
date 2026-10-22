@@ -49,6 +49,8 @@ export interface TerminalApi {
     ): () => void
   }
   files: {
+    downloadDestination(choose?: boolean): Promise<string | undefined>
+    showLocal(path: string): Promise<void>
     onActivity(listener: (activity: FileActivity) => void): () => void
     localRoot(): Promise<string>
     chooseLocal(): Promise<string>
@@ -82,8 +84,8 @@ export interface TerminalApi {
   }
   identities: {
     list(): Promise<SshIdentity[]>
-    save(identity: SshIdentity): Promise<SshIdentity>
-    remove(id: string): Promise<void>
+    save(identity: SshIdentity, secret?: string): Promise<SshIdentity>
+    remove(id: string, options?: { replacementId?: string; detach?: boolean; confirmMerge?: boolean }): Promise<void>
     chooseKey(): Promise<string | undefined>
     discoverSsh(): Promise<SshIdentity[]>
   }

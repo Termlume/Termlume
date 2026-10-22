@@ -40,6 +40,46 @@ const profile = {
   monitoringEnabled: false,
 } as HostProfile
 
+it('reports actual cwd with effective shared username and preserves output bytes and ACK sequencing', async () => {
+  vi.useFakeTimers()
+  const adapter = Object.assign(new FakeAdapter(), { cwdUsername: 'shvv' })
+  const events: SessionEvent[] = []
+  const manager = new SessionManager(
+    () => adapter,
+    (_owner, event) => events.push(event),
+  )
+  const id = await manager.open(1, profile)
+  await vi.advanceTimersByTimeAsync(0)
+  const output = Buffer.from('shvv@server:/home/shvv$ ')
+  adapter.emit({ type: 'data', data: output })
+  await vi.advanceTimersByTimeAsync(121)
+  expect(events.filter((event) => event.type === 'cwd').map((event) => event.path)).toEqual([
+    '/home/shvv',
+  ])
+  const firstData = events.find((event) => event.type === 'data')!
+  expect(firstData.type === 'data' ? [...firstData.data] : []).toEqual([...output])
+  manager.ack(1, id, firstData.sequence)
+  manager.write(1, id, 'cd /tmp\r')
+  const osc = Buffer.from('\x1b]7;file:///tmp\x07')
+  adapter.emit({ type: 'data', data: osc })
+  await vi.advanceTimersByTimeAsync(16)
+  const data = events.filter((event) => event.type === 'data')
+  expect(data.map((event) => Buffer.from(event.data).toString())).toEqual([
+    output.toString(),
+    osc.toString(),
+  ])
+  expect(events.filter((event) => event.type === 'cwd').map((event) => event.path)).toEqual([
+    '/home/shvv',
+    '/tmp',
+  ])
+  manager.ack(1, id, data.at(-1)!.sequence)
+  expect(
+    events.every((event, index) => index === 0 || event.sequence > events[index - 1].sequence),
+  ).toBe(true)
+  expect(adapter.writes).toEqual(['cd /tmp\r'])
+  await manager.closeOwner(1)
+})
+
 describe('SessionManager', () => {
   it('foreignOwnerCannotWrite', async () => {
     const adapter = new FakeAdapter()
