@@ -1,0 +1,22 @@
+VcXsrv Windows X Server 21.1.16.1
+Upstream: https://github.com/marchaesen/vcxsrv
+Release: https://github.com/marchaesen/vcxsrv/releases/tag/21.1.16.1
+Source commit: b1c7712a2584b263f44fa24e8c493f4f59c472ea
+Source: https://github.com/marchaesen/vcxsrv/tree/b1c7712a2584b263f44fa24e8c493f4f59c472ea
+
+VcXsrv is distributed as a separate, unmodified native program under GNU GPL v3.
+See COPYING in this directory. Its component libraries, fonts and data retain
+their respective upstream licenses and copyright notices. The complete source
+archive, including the upstream component licenses, build files and instructions,
+is included beside this runtime in x11-source/vcxsrv-21.1.16.1-source.tar.gz.
+To rebuild, extract that archive and follow its upstream README/build instructions.
+The native executable is not linked into Termlume; communication uses X11 TCP.
+
+The project's preparation script extracts official release files without running
+the installer. Installer-only helpers and the default X0.hosts localhost bypass
+are excluded. At runtime Termlume supplies a fresh Xauthority file, checks cookie
+authentication, and refuses to use a server accepting unauthenticated connections.
+No changes are made to an existing VcXsrv installation or user configuration.
+
+7-Zip is used only as a local extraction tool and is not part of this runtime.
+Official extraction tool source and license: https://www.7-zip.org/

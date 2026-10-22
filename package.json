@@ -1,6 +1,6 @@
 {
   "name": "termlume",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "SSH, SFTP, Telnet and WSL terminal for Windows",
   "main": "out/main/index.js",
@@ -15,7 +15,8 @@
     "dist:win": "node scripts/release-win.cjs",
     "test:package": "node scripts/package-smoke.cjs",
     "format": "prettier --write src tests scripts electron.vite.config.ts vitest.config.mts playwright.config.ts tsconfig*.json",
-    "build:native": "node scripts/build-native-drag.cjs"
+    "build:native": "node scripts/build-native-drag.cjs && node scripts/prepare-x11.cjs",
+    "prepare:x11": "node scripts/prepare-x11.cjs"
   },
   "dependencies": {
     "@catppuccin/palette": "1.8.0",
@@ -28,6 +29,7 @@
     "node-pty": "1.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
     "ssh2": "1.17.0",
     "zod": "4.6.7"
   },
@@ -59,5 +61,5 @@
   "bugs": {
     "url": "https://github.com/Termlume/Termlume/issues"
   },
-  "displayVersion": "0.2.2"
+  "displayVersion": "0.2.3"
 }

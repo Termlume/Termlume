@@ -116,7 +116,7 @@
   color: var(--muted);
 }
 .update-whats-new > div {
-  white-space: pre-wrap;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 .update-dialog progress {
@@ -142,6 +142,71 @@
   font-size: 21px;
 }
 
-.update-dialog { color:var(--text); font:13px/1.5 "Segoe UI",sans-serif; letter-spacing:normal; }
-.update-dialog h2 { font-weight:600; }
-.update-dialog > .text-button { align-self:center; }
+.update-dialog {
+  color: var(--text);
+  font:
+    13px/1.5 'Segoe UI',
+    sans-serif;
+  letter-spacing: normal;
+}
+.update-dialog h2 {
+  font-weight: 600;
+}
+.update-dialog > .text-button {
+  align-self: center;
+}
+
+.release-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 16px 0 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.release-markdown > :first-child {
+  margin-top: 0;
+}
+.release-markdown > :last-child {
+  margin-bottom: 0;
+}
+.update-dialog .release-markdown p {
+  margin: 7px 0;
+}
+.release-markdown :is(ul, ol) {
+  margin: 7px 0 12px;
+  padding-left: 20px;
+}
+.release-markdown li {
+  margin: 5px 0;
+}
+.release-markdown code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--panel);
+  font:
+    11px/1.6 Consolas,
+    monospace;
+}
+.release-markdown pre {
+  margin: 9px 0;
+  padding: 9px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  white-space: pre;
+}
+.release-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+.release-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.release-markdown blockquote {
+  margin: 10px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+}

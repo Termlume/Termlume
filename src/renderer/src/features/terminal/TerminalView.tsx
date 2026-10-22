@@ -11,6 +11,8 @@ import { MacroInput, filterMacros, isCommandPrompt } from './MacroInput'
 import type { TerminalMacro } from '../../../../shared/contracts'
 import './macros.css'
 import '@xterm/xterm/css/xterm.css'
+import { needsPastePreview } from './paste-text'
+import { PastePreview } from './PastePreview'
 export function TerminalView({
   sessionId,
   active,
@@ -18,6 +20,8 @@ export function TerminalView({
   highlightRules,
   output,
   onFontSizeChange,
+  sessionName = 'Терминал',
+  hostId,
 }: {
   sessionId: string
   active: boolean
@@ -25,21 +29,26 @@ export function TerminalView({
   highlightRules?: HighlightRule[]
   output: SessionOutputRouter
   onFontSizeChange?: (fontSize: number) => void
+  sessionName?: string
+  hostId?: string
 }) {
   const element = useRef<HTMLDivElement>(null),
     terminal = useRef<Terminal | null>(null),
     fit = useRef<FitAddon | null>(null),
     activeRef = useRef(active),
     settingsRef = useRef(settings),
+    hostIdRef = useRef(hostId),
     fontSizeHandlerRef = useRef(onFontSizeChange),
     inputQueue = useRef<SmoothInputQueue | null>(null)
   const highlighterRef = useRef<AsyncOutputHighlighter | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<string | null>(null)
   const rules = highlightRules ?? settings.highlightRules ?? DEFAULT_HIGHLIGHT_RULES
   useEffect(() => {
     highlighterRef.current?.configure(rules)
   }, [rules])
   activeRef.current = active
   settingsRef.current = settings
+  hostIdRef.current = hostId
   fontSizeHandlerRef.current = onFontSizeChange
   const [macroMenu, setMacroMenu] = useState<{
     query: string
@@ -51,6 +60,7 @@ export function TerminalView({
     cancel: () => void
   } | null>(null)
   useEffect(() => {
+    let disposed = false
     const term = new Terminal({
       theme: terminalTheme(settings.themeId),
       fontFamily: settings.terminalFont,
@@ -63,9 +73,18 @@ export function TerminalView({
     term.loadAddon(fitAddon)
     term.open(element.current!)
     terminal.current = term
+    const requestPaste = (text: string) => {
+      if (disposed || !activeRef.current || !text) return
+      if (needsPastePreview(text)) {
+        macroInput.discardQuery()
+        refreshMacros()
+        setPendingPaste(text)
+      } else term.paste(text)
+    }
     fit.current = fitAddon
     inputQueue.current = new SmoothInputQueue((data) => {
-      if (activeRef.current) window.terminalApi.sessions.write(sessionId, data).catch(() => {})
+      if (activeRef.current && data)
+        window.terminalApi.sessions.write(sessionId, data).catch(() => {})
     }, settings.smoothInput)
     const highlighter = new AsyncOutputHighlighter((text, done) => term.write(text, done), rules)
     highlighterRef.current = highlighter
@@ -97,7 +116,11 @@ export function TerminalView({
       const rowHeight = screen.height / term.rows
       const cursorTop =
         screen.top - bounds.top + (buffer.baseY + buffer.cursorY - buffer.viewportY) * rowHeight
-      const count = filterMacros(settingsRef.current.macros ?? [], macroInput.query).length
+      const count = filterMacros(
+        settingsRef.current.macros ?? [],
+        macroInput.query,
+        hostIdRef.current,
+      ).length
       const height = Math.min(
         78 + Math.min(220, Math.max(1, count) * 56 + 8),
         Math.max(0, bounds.height - 16),
@@ -139,7 +162,9 @@ export function TerminalView({
           .getLine(buffer.baseY + buffer.cursorY)
           ?.translateToString(false, 0, buffer.cursorX) ?? ''
       const atPrompt =
-        buffer.type === 'normal' && isCommandPrompt(line) && !!settingsRef.current.macros?.length
+        buffer.type === 'normal' &&
+        isCommandPrompt(line) &&
+        filterMacros(settingsRef.current.macros ?? [], '', hostIdRef.current).length > 0
       const forwarded = macroInput.feed(data, atPrompt)
       if (forwarded) inputQueue.current?.write(forwarded)
       highlighted = 0
@@ -164,21 +189,53 @@ export function TerminalView({
       if (!term.hasSelection())
         navigator.clipboard
           .readText()
-          .then((text) => term.paste(text))
+          .then(requestPaste)
           .catch(() => {})
     }
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey || !fontSizeHandlerRef.current) return
+      if (!event.deltaY) return
       event.preventDefault()
+      event.stopImmediatePropagation()
       const current = terminal.current?.options.fontSize ?? settings.terminalFontSize
       const next = Math.max(10, Math.min(32, current + (event.deltaY < 0 ? 1 : -1)))
-      if (next !== current) fontSizeHandlerRef.current(next)
+      if (next !== current) {
+        term.options.fontSize = next
+        fitVisible()
+        fontSizeHandlerRef.current(next)
+      }
+    }
+    const onPaste = (event: ClipboardEvent) => {
+      if (!activeRef.current) return
+      const text = event.clipboardData?.getData('text/plain')
+      if (text === undefined) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      requestPaste(text)
     }
     element.current?.addEventListener('contextmenu', onContextMenu)
-    element.current?.addEventListener('wheel', onWheel, { passive: false })
+    element.current?.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    element.current?.addEventListener('paste', onPaste, true)
     term.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type === 'keydown' &&
+        ((event.ctrlKey && event.code === 'KeyV' && !event.altKey) ||
+          (event.shiftKey && event.code === 'Insert' && !event.ctrlKey))
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
+        navigator.clipboard
+          .readText()
+          .then(requestPaste)
+          .catch(() => {})
+        return false
+      }
       if (event.type === 'keydown' && macroInput.query !== null) {
-        const items = filterMacros(settingsRef.current.macros ?? [], macroInput.query)
+        const items = filterMacros(
+          settingsRef.current.macros ?? [],
+          macroInput.query,
+          hostIdRef.current,
+        )
         if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key)) {
           event.preventDefault()
           event.stopPropagation()
@@ -202,19 +259,11 @@ export function TerminalView({
         if (term.hasSelection()) navigator.clipboard.writeText(term.getSelection()).catch(() => {})
         return false
       }
-      if (event.code === 'KeyV') {
-        navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (activeRef.current) term.paste(text)
-          })
-          .catch(() => {})
-        return false
-      }
       return true
     })
     fitVisible()
     return () => {
+      disposed = true
       highlighter.dispose()
       highlighterRef.current = null
       observer.disconnect()
@@ -224,7 +273,8 @@ export function TerminalView({
       inputQueue.current?.close()
       inputQueue.current = null
       element.current?.removeEventListener('contextmenu', onContextMenu)
-      element.current?.removeEventListener('wheel', onWheel)
+      element.current?.removeEventListener('wheel', onWheel, true)
+      element.current?.removeEventListener('paste', onPaste, true)
       window.removeEventListener('terminal-theme-change', previewTheme)
       document.removeEventListener('pointerdown', outsideMacro)
       macroActions.current = null
@@ -234,14 +284,17 @@ export function TerminalView({
     }
   }, [sessionId, output])
   useEffect(() => {
-    if (!active) macroActions.current?.cancel()
+    if (!active) {
+      macroActions.current?.cancel()
+      setPendingPaste(null)
+    }
   }, [active])
   useEffect(() => {
     const input = element.current?.querySelector('.xterm-helper-textarea')
     if (macroMenu) {
       input?.setAttribute('aria-controls', `macro-list-${sessionId}`)
       input?.setAttribute('aria-autocomplete', 'list')
-      const selected = filterMacros(settings.macros ?? [], macroMenu.query)[macroMenu.index]
+      const selected = filterMacros(settings.macros ?? [], macroMenu.query, hostId)[macroMenu.index]
       if (selected)
         input?.setAttribute('aria-activedescendant', `macro-option-${sessionId}-${selected.id}`)
       else input?.removeAttribute('aria-activedescendant')
@@ -253,7 +306,7 @@ export function TerminalView({
     element.current
       ?.querySelector('.terminal-macros [aria-selected="true"]')
       ?.scrollIntoView({ block: 'nearest' })
-  }, [macroMenu, sessionId, settings.macros])
+  }, [macroMenu, sessionId, settings.macros, hostId])
   useEffect(() => {
     inputQueue.current?.setEnabled(settings.smoothInput)
     if (terminal.current) {
@@ -273,15 +326,31 @@ export function TerminalView({
       className={'terminal-pane ' + (active ? 'active' : '')}
       data-session-id={sessionId}
     >
+      {active && pendingPaste !== null && (
+        <PastePreview
+          text={pendingPaste}
+          target={sessionName}
+          onChange={setPendingPaste}
+          onCancel={() => {
+            setPendingPaste(null)
+            terminal.current?.focus()
+          }}
+          onConfirm={() => {
+            if (activeRef.current) terminal.current?.paste(pendingPaste)
+            setPendingPaste(null)
+            terminal.current?.focus()
+          }}
+        />
+      )}
       {active && macroMenu && (
-        <div className="terminal-macros" style={macroMenu.style} aria-label="Макросы терминала">
+        <div className="terminal-macros" style={macroMenu.style} aria-label="Команды терминала">
           <div className="terminal-macros-heading">
             <strong>Макросы</strong>
             <code>/{macroMenu.query}</code>
             <kbd>Esc · обычный ввод</kbd>
           </div>
-          <div role="listbox" id={`macro-list-${sessionId}`} aria-label="Доступные макросы">
-            {filterMacros(settings.macros ?? [], macroMenu.query).map((macro, index) => (
+          <div role="listbox" id={`macro-list-${sessionId}`} aria-label="Доступные команды">
+            {filterMacros(settings.macros ?? [], macroMenu.query, hostId).map((macro, index) => (
               <button
                 key={macro.id}
                 type="button"
@@ -294,12 +363,12 @@ export function TerminalView({
               >
                 <span className="terminal-macro-name">
                   /{macro.name}
-                  <span>{macro.description}</span>
+                  <span>{[macro.category, macro.description].filter(Boolean).join(' · ')}</span>
                 </span>
                 <code>{macro.command}</code>
               </button>
             ))}
-            {!filterMacros(settings.macros ?? [], macroMenu.query).length && (
+            {!filterMacros(settings.macros ?? [], macroMenu.query, hostId).length && (
               <p className="terminal-macros-empty">
                 Совпадений нет. Escape вернёт текст в терминал.
               </p>

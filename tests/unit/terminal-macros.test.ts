@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { settingsSchema, settingsPatchSchema } from '../../src/shared/schemas'
+import { COMMAND_PRESETS, macroFromPreset } from '../../src/shared/command-presets'
 import {
   MacroInput,
   isCommandPrompt,
@@ -7,6 +8,18 @@ import {
 } from '../../src/renderer/src/features/terminal/MacroInput'
 const macros = [{ id: 'demo', name: 'logs', command: 'journalctl -n 50', description: 'Журнал' }]
 describe('terminal macros', () => {
+  it('adds editable single-line examples with unique names', () => {
+    const preset = COMMAND_PRESETS[0]
+    const existing = [
+      { ...preset, id: 'a', name: 'DISK' },
+      { ...preset, id: 'b', name: 'disk-2' },
+    ]
+    const copy = macroFromPreset(preset, existing, 'copy')
+    expect(copy.name).toBe('disk-3')
+    copy.command = 'df -i'
+    expect(preset.command).toBe('df -h')
+    expect(settingsPatchSchema.safeParse({ macros: COMMAND_PRESETS.map((item, i) => macroFromPreset(item, [], String(i))) }).success).toBe(true)
+  })
   it('ignores terminal capability and focus replies while tracking command input', () => {
     const m = new MacroInput()
     expect(m.feed('\x1b[?1;2c', false)).toBe('\x1b[?1;2c')
@@ -69,5 +82,31 @@ describe('terminal macros', () => {
   it('filters by name and description', () => {
     expect(filterMacros(macros, 'Журнал')).toEqual(macros)
     expect(filterMacros(macros, 'unknown')).toEqual([])
+  })
+  it('discards a held slash query without releasing it or changing ordinary input', () => {
+    const m = new MacroInput()
+    m.feed('/', true)
+    m.feed('logs', true)
+    m.discardQuery()
+    expect(m.query).toBeNull()
+    expect(m.cancel()).toBe('')
+    expect(m.feed('first\nsecond', true)).toBe('first\nsecond')
+    m.feed('\r', true)
+    m.feed('echo ', true)
+    m.discardQuery()
+    expect(m.feed('/', true)).toBe('/')
+    expect(m.query).toBeNull()
+  })
+  it('keeps old macros global and scopes bound commands to their hosts', () => {
+    const bound = { ...macros[0], id: 'bound', name: 'status', category: 'Диагностика', hostIds: ['host-a'] }
+    expect(filterMacros([...macros, bound], '', 'host-a')).toHaveLength(2)
+    expect(filterMacros([...macros, bound], '', 'host-b')).toEqual(macros)
+    expect(filterMacros([...macros, bound], '')).toEqual(macros)
+    expect(filterMacros([bound], 'диагностика', 'host-a')).toEqual([bound])
+    expect(filterMacros([bound], 'journalctl', 'host-a')).toEqual([bound])
+    const parsed = settingsPatchSchema.parse({ macros: [bound] })
+    expect(parsed.macros?.[0].hostIds).toEqual(['host-a'])
+    expect(parsed.macros?.[0].category).toBe('Диагностика')
+    expect(settingsPatchSchema.safeParse({ macros: [{ ...bound, command: 'ls\rwhoami' }] }).success).toBe(false)
   })
 })

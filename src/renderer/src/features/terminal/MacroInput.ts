@@ -4,10 +4,11 @@ export function isCommandPrompt(line: string): boolean {
   return /\S.*[$#>%❯➜]\s*$|^[$#>%❯➜]\s*$/.test(line)
 }
 
-export function filterMacros(macros: TerminalMacro[], query: string): TerminalMacro[] {
+export function filterMacros(macros: TerminalMacro[], query: string, hostId?: string): TerminalMacro[] {
   const search = query.toLocaleLowerCase()
   return macros.filter((macro) =>
-    `${macro.name} ${macro.description}`.toLocaleLowerCase().includes(search),
+    (!macro.hostIds?.length || (!!hostId && macro.hostIds.includes(hostId))) &&
+    `${macro.name} ${macro.description} ${macro.category || ''} ${macro.command}`.toLocaleLowerCase().includes(search),
   )
 }
 
@@ -62,6 +63,13 @@ export class MacroInput {
     this.query = null
     this.typed = text
     return text
+  }
+
+  discardQuery(): void {
+    if (this.query === null) return
+    this.query = null
+    this.typed = ''
+    this.uncertain = false
   }
 
   choose(macro: TerminalMacro): string {

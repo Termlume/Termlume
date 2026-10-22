@@ -94,7 +94,7 @@ it('retains arrow focus after moving a keyed row, including the boundary, and to
       ?.contains(document.querySelector('.monitoring-editor-hint')),
   ).toBe(false)
 })
-it('opens the same ordering editor directly in both placements', () => {
+it('keeps inline configuration out of both panels and retains the context menu', () => {
   for (const expanded of [false, true]) {
     const view = render(
       <MonitoringBar
@@ -104,8 +104,9 @@ it('opens the same ordering editor directly in both placements', () => {
         onVisibleItemsChange={vi.fn()}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Настроить показатели' }))
-    expect(screen.getByRole('button', { name: 'Опустить: Процессор' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Настроить показатели' })).toBeNull()
+    fireEvent.contextMenu(screen.getByRole('toolbar'))
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Температуры' })).toBeDefined()
     view.unmount()
   }
 })

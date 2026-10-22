@@ -11,6 +11,7 @@ import {
   Users,
   HardDrive,
   FolderSymlink,
+  Thermometer,
 } from 'lucide-react'
 import {
   createContext,
@@ -72,6 +73,7 @@ export function MonitoringHover({
         Пользователи: Users,
         Диски: HardDrive,
         NFS: FolderSymlink,
+        Температуры: Thermometer,
       } as Record<string, typeof Cpu>
     )[label] || (label.startsWith('/') ? HardDrive : undefined)
   const { active, setActive, expanded } = useContext(HoverContext)

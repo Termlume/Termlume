@@ -7,3 +7,8 @@ Tokyo Night — enkia and contributors — MIT — https://github.com/tokyo-nigh
 One Dark — GitHub Inc. and contributors — MIT — https://github.com/atom/one-dark-syntax
 Lucide icons — Lucide contributors — ISC — https://lucide.dev/license
 Fonts are provided locally by Windows.
+
+VcXsrv Windows X Server 21.1.16.1 — GNU GPL v3 — https://github.com/marchaesen/vcxsrv
+Separate native X11 server. See x11/NOTICE.txt and x11/COPYING. The complete
+upstream source, component licenses and build instructions accompany the runtime
+in x11-source/vcxsrv-21.1.16.1-source.tar.gz.

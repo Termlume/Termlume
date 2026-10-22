@@ -26,6 +26,8 @@
     [
       { 'from': 'build/THIRD_PARTY_NOTICES.txt', 'to': 'THIRD_PARTY_NOTICES.txt' },
       { 'from': 'build/licenses', 'to': 'licenses' },
+      { 'from': 'build/x11', 'to': 'x11' },
+      { 'from': 'build/x11-source', 'to': 'x11-source' },
       { 'from': 'build/icon.ico', 'to': 'drag-icon.ico' },
       {
         'from': 'native/windows-drag/bin/Termlume.FileDrag.exe',

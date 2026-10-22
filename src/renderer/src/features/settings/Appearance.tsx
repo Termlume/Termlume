@@ -21,7 +21,9 @@ import {
 import './settings-layout.css'
 import { themes } from '../../themes/palettes'
 import { ThemeController } from '../../themes/apply-theme'
-import type { Settings, ThemeId } from '../../../../shared/contracts'
+import { SessionLogSettings } from './SessionLogSettings'
+import { X11Settings } from './X11Settings'
+import type { HostProfile, Settings, ThemeId } from '../../../../shared/contracts'
 import { ru } from '../../app/ru'
 import { DataTransfer } from './DataTransfer'
 import { DownloadSettings } from './DownloadSettings'
@@ -61,9 +63,21 @@ const sections = [
   },
   {
     id: 'macros',
-    label: 'Макросы',
+    label: 'Библиотека команд',
     icon: Command,
     hint: 'Частые команды, доступные по / в терминале.',
+  },
+  {
+    id: 'journals',
+    label: 'Журналы сеансов',
+    icon: Archive,
+    hint: 'Запись, поиск и сохранение вывода терминала.',
+  },
+  {
+    id: 'x11',
+    label: 'Графика X11',
+    icon: TerminalSquare,
+    hint: 'Графические приложения SSH в окнах Windows.',
   },
   {
     id: 'highlighting',
@@ -90,11 +104,15 @@ export function Appearance({
   onSaved,
   onClose,
   onShortcuts,
+  hosts = [],
+  activeSessionId,
 }: {
   settings: Settings
   onSaved: (value: Settings) => void
   onClose: () => void
   onShortcuts?: () => void
+  hosts?: HostProfile[]
+  activeSessionId?: string
 }) {
   const [section, setSection] = useState<SectionId>('appearance')
   const [credentialsDirty, setCredentialsDirty] = useState(false)
@@ -496,6 +514,7 @@ export function Appearance({
                 <p>{sections.find((item) => item.id === 'macros')!.hint}</p>
               </header>
               <Macros
+                hosts={hosts}
                 value={macros}
                 onChange={(value) => {
                   setMacros(value)
@@ -503,6 +522,28 @@ export function Appearance({
                 }}
                 error={macroError}
               />
+            </section>
+            <section
+              role="tabpanel"
+              id="settings-panel-journals"
+              aria-labelledby="settings-tab-journals"
+              hidden={section !== 'journals'}
+              tabIndex={0}
+              className="settings-page"
+            >
+              {section === 'journals' && (
+                <SessionLogSettings hosts={hosts} activeSessionId={activeSessionId} />
+              )}
+            </section>
+            <section
+              role="tabpanel"
+              id="settings-panel-x11"
+              aria-labelledby="settings-tab-x11"
+              hidden={section !== 'x11'}
+              tabIndex={0}
+              className="settings-page"
+            >
+              {section === 'x11' && <X11Settings settings={settings} onSaved={onSaved} />}
             </section>
             <section
               role="tabpanel"

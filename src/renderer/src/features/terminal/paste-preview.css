@@ -1,0 +1,51 @@
+.paste-preview-backdrop {
+  z-index: 90;
+}
+.modal.paste-preview-dialog {
+  width: min(760px, 92vw);
+  padding: 22px;
+}
+.paste-preview-dialog .modal-heading {
+  margin-bottom: 12px;
+  align-items: flex-start;
+}
+.paste-preview-dialog .modal-heading p {
+  margin-bottom: 0;
+}
+.paste-preview-editor {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.paste-preview-editor textarea,
+.paste-preview-lines {
+  margin: 0;
+  padding: 12px;
+  height: min(380px, 45vh);
+  font:
+    12px/20px Consolas,
+    monospace;
+  white-space: pre;
+  border: none;
+}
+.paste-preview-editor textarea {
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  background: transparent;
+  resize: none;
+  outline-offset: -2px;
+}
+.paste-preview-editor textarea:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.paste-preview-lines {
+  overflow: hidden;
+  color: var(--dim);
+  text-align: right;
+  border-right: 1px solid var(--border);
+  user-select: none;
+}

@@ -17,6 +17,7 @@ function run(args) {
 try {
   run([path.join(root, 'node_modules/electron-vite/bin/electron-vite.js'), 'build'])
   run([path.join(root, 'scripts/build-native-drag.cjs')])
+  run([path.join(root, 'scripts/prepare-x11.cjs')])
   run([path.join(root, 'scripts/collect-licenses.cjs')])
   fs.writeFileSync(
     configPath,

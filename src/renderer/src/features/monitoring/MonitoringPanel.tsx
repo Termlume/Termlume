@@ -61,7 +61,8 @@ export function MonitoringPanel({
   onVisibleItemsChange?: (items: MonitorItem[]) => void
   onResetItems?: () => void
 }) {
-  const enabled = !!profile && profile.protocol === 'ssh' && connected
+  const enabled =
+    !!profile && (profile.protocol === 'ssh' || profile.protocol === 'wsl') && connected
   const { snapshot, error, retry } = useMonitoring(sessionId, enabled, true)
   if (!enabled)
     return (
@@ -71,14 +72,17 @@ export function MonitoringPanel({
         <p>
           {!profile || !connected
             ? 'Подключитесь к Linux-серверу, чтобы видеть его ресурсы.'
-            : profile.protocol !== 'ssh'
-              ? 'Мониторинг доступен в SSH-сеансах Linux.'
+            : profile.protocol !== 'ssh' && profile.protocol !== 'wsl'
+              ? 'Мониторинг доступен в SSH-сеансах Linux и WSL.'
               : 'Включите «Мониторинг Linux» в настройках подключения и откройте новый сеанс.'}
         </p>
       </div>
     )
   return (
     <div className={placement === 'sidebar' ? 'monitoring-content' : 'monitoring-bottom'}>
+      {profile.protocol === 'wsl' && placement === 'sidebar' && (
+        <p className="muted small">Ресурсы среды WSL · {profile.distribution}</p>
+      )}
       {error && <p className="error-message">{error}</p>}
       {snapshot && snapshot.state !== 'sampling' && (
         <div className="monitor-warning">

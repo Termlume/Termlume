@@ -2400,3 +2400,22 @@ button:active:not(:disabled) {
   flex-shrink: 0;
   position: relative;
 }
+
+.session-recording-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  margin-left: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.session-recording-button[aria-pressed='true'] {
+  color: var(--danger, #dd5757);
+}
+.session-recording-button:hover {
+  color: var(--accent);
+}

@@ -9,6 +9,7 @@ import { Appearance } from '../features/settings/Appearance'
 import { applyTheme } from '../themes/apply-theme'
 import type { HostProfile, Settings } from '../../../shared/contracts'
 import { useHosts, filterHosts } from '../features/hosts/useHosts'
+import { WslDefaultEntry } from '../features/hosts/WslDefaultEntry'
 import { HostList } from '../features/hosts/HostList'
 import { orderedGroups, moveGroup } from '../features/hosts/group-order'
 import { HostEditor } from '../features/hosts/HostEditor'
@@ -16,6 +17,7 @@ import { QuickConnect } from '../features/hosts/QuickConnect'
 import { useSessions } from '../features/sessions/useSessions'
 import { Tabs, stateLabels } from '../features/sessions/Tabs'
 import { TerminalView } from '../features/terminal/TerminalView'
+import { SessionRecordingButton } from '../features/sessions/SessionRecordingButton'
 import { AuthDialog } from '../features/sessions/AuthDialog'
 import { HostKeyDialog } from '../features/sessions/HostKeyDialog'
 import { SftpBrowser } from '../features/sftp/Browser'
@@ -100,7 +102,7 @@ export default function App() {
     setEditor(null)
   }
   const openHost = (profile: HostProfile) => {
-    if (profile.protocol === 'ssh') setMonitor(true)
+    if (profile.protocol === 'ssh' || profile.protocol === 'wsl') setMonitor(true)
     void sessions.open(profile)
   }
   const savePreference = (patch: Partial<Settings>) => {
@@ -123,6 +125,7 @@ export default function App() {
         hasActiveTab: Boolean(sessions.active),
         tabCount: sessions.tabs.length,
         modalOpen:
+          Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')) ||
           updateDialogOpen ||
           commandsOpen ||
           quick ||
@@ -224,6 +227,13 @@ export default function App() {
           activeTab && (
             <span>
               {stateLabels[activeTab.state]} · {activeTab.profile.protocol.toUpperCase()}
+              {!fileTabActive && activeTab.state === 'connected' && (
+                <SessionRecordingButton
+                  key={activeTab.id}
+                  sessionId={activeTab.id}
+                  onError={setError}
+                />
+              )}
             </span>
           )
         }
@@ -240,6 +250,15 @@ export default function App() {
               favoriteOnly={favoriteOnly}
               onFavorite={() => setFavoriteOnly(!favoriteOnly)}
             >
+              <WslDefaultEntry
+                hosts={catalog.hosts}
+                search={search}
+                favoriteOnly={favoriteOnly}
+                onConnect={(profile) => {
+                  setMonitor(true)
+                  void sessions.open(profile, true)
+                }}
+              />
               {catalog.hosts.length > 0 && (
                 <HostList
                   hosts={filterHosts(catalog.hosts, search, favoriteOnly)}
@@ -314,11 +333,13 @@ export default function App() {
               <Workspace
                 onNew={newHost}
                 onWsl={() => {
+                  setMonitor(true)
                   window.terminalApi.wsl
-                    .list()
+                    .inventory()
                     .then((distributions) => {
                       const distribution =
-                        distributions.find((name) => name.startsWith('Ubuntu')) || distributions[0]
+                        distributions.find((entry) => entry.isDefault)?.name ||
+                        distributions[0]?.name
                       if (!distribution)
                         throw new Error('Не найдено установленных дистрибутивов WSL')
                       return sessions.open(
@@ -354,6 +375,11 @@ export default function App() {
                   onFocus={sessions.setActive}
                   renderSession={(id) => (
                     <TerminalView
+                      hostId={(() => {
+                        const profile = sessions.tabs.find((tab) => tab.id === id)?.profile
+                        return profile && profile.protocol !== 'local' ? profile.id : undefined
+                      })()}
+                      sessionName={sessions.tabs.find((tab) => tab.id === id)?.profile.name}
                       key={id}
                       sessionId={id}
                       active={id === sessions.active}
@@ -416,7 +442,11 @@ export default function App() {
                 <span>{activeTab.error || 'Связь потеряна. Подключитесь снова.'}</span>
                 <button
                   onClick={() => {
-                    if (activeTab.profile.protocol === 'ssh') setMonitor(true)
+                    if (
+                      activeTab.profile.protocol === 'ssh' ||
+                      activeTab.profile.protocol === 'wsl'
+                    )
+                      setMonitor(true)
                     void sessions.reconnect(activeTab.profile)
                   }}
                 >
@@ -568,6 +598,8 @@ export default function App() {
       {appearance && settings && (
         <Appearance
           settings={settings}
+          hosts={catalog.hosts}
+          activeSessionId={fileTabActive ? undefined : sessions.active}
           onSaved={setSettings}
           onShortcuts={() => setShortcutsOpen(true)}
           onClose={() => setAppearance(false)}
@@ -584,7 +616,7 @@ export default function App() {
       {quick && (
         <QuickConnect
           onConnect={(profile, secret) => {
-            if (profile.protocol === 'ssh') setMonitor(true)
+            if (profile.protocol === 'ssh' || profile.protocol === 'wsl') setMonitor(true)
             return sessions.open(profile, true, secret)
           }}
           onClose={() => setQuick(false)}

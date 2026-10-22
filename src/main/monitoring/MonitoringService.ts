@@ -27,15 +27,15 @@ export class MonitoringService {
       return
     }
     const source = this.source(id)
-    if (source.profile.protocol !== 'ssh')
-      throw new AppError('monitor-disabled', 'Мониторинг Linux доступен только в SSH-сеансах')
+    if (source.profile.protocol !== 'ssh' && source.profile.protocol !== 'wsl')
+      throw new AppError('monitor-disabled', 'Мониторинг Linux доступен в SSH-сеансах и WSL')
     if (this.activeId && this.activeId !== id) this.monitors.get(this.activeId)?.pause()
     this.activeId = id
     let monitor = this.monitors.get(id)
     if (!monitor) {
       monitor = new LinuxMonitor(source.exec, {
         intervalSeconds: this.intervalSeconds,
-        currentUser: source.profile.username,
+        currentUser: source.profile.protocol === 'ssh' ? source.profile.username : undefined,
       })
       monitor.subscribe((snapshot) => {
         if (this.activeId === id && this.windowVisible) this.sink(id, snapshot)

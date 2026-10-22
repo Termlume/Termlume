@@ -8,6 +8,22 @@ async function call(action: string, params: Record<string, unknown> = {}) {
 }
 contextBridge.exposeInMainWorld('terminalApi', {
   platform: process.platform,
+  x11: {
+    status: () => call('x11.status'),
+    start: () => call('x11.start'),
+    stop: () => call('x11.stop'),
+  },
+  logs: {
+    settings: () => call('logs.settings'),
+    configure: (patch: unknown) => call('logs.configure', { patch }),
+    chooseFolder: () => call('logs.chooseFolder'),
+    list: () => call('logs.list'),
+    start: (sessionId: string) => call('logs.start', { sessionId }),
+    stop: (sessionId: string) => call('logs.stop', { sessionId }),
+    read: (id: string) => call('logs.read', { id }),
+    bookmark: (id: string, bookmarked: boolean) => call('logs.bookmark', { id, bookmarked }),
+    export: (id: string) => call('logs.export', { id }),
+  },
   updates: {
     status: () => call('updates.status'),
     check: () => call('updates.check'),
@@ -20,6 +36,7 @@ contextBridge.exposeInMainWorld('terminalApi', {
     },
   },
   app: {
+    openUrl: (url: string) => call('app.openUrl', { url }),
     setTheme: (themeId: string) => ipcRenderer.send('terminal:theme', themeId),
     onNotice: (listener: (message: string) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, message: string) => listener(message)
@@ -42,7 +59,7 @@ contextBridge.exposeInMainWorld('terminalApi', {
       return () => ipcRenderer.removeListener('terminal:shortcut', handler)
     },
   },
-  wsl: { list: () => call('wsl.list') },
+  wsl: { list: () => call('wsl.list'), inventory: () => call('wsl.inventory') },
   monitoring: {
     setVisible: (sessionId: string, visible: boolean) =>
       call('monitoring.setVisible', { sessionId, visible }),
@@ -102,7 +119,10 @@ contextBridge.exposeInMainWorld('terminalApi', {
   identities: {
     list: () => call('identities.list'),
     save: (identity: unknown, secret?: string) => call('identities.save', { identity, secret }),
-    remove: (id: string, options?: { replacementId?: string; detach?: boolean; confirmMerge?: boolean }) => call('identities.remove', { id, ...options }),
+    remove: (
+      id: string,
+      options?: { replacementId?: string; detach?: boolean; confirmMerge?: boolean },
+    ) => call('identities.remove', { id, ...options }),
     chooseKey: () => call('identity.chooseKey'),
     discoverSsh: () => call('ssh.discoverIdentities'),
   },

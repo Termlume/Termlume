@@ -20,6 +20,24 @@ import type {
   MetricSnapshot,
 } from './contracts'
 export interface TerminalApi {
+  x11: {
+    status(): Promise<import('./contracts').X11Status>
+    start(): Promise<import('./contracts').X11Status>
+    stop(): Promise<import('./contracts').X11Status>
+  }
+  logs: {
+    settings(): Promise<import('./session-logs').SessionLogConfig>
+    configure(
+      patch: Partial<import('./session-logs').SessionLogConfig>,
+    ): Promise<import('./session-logs').SessionLogConfig>
+    chooseFolder(): Promise<string | undefined>
+    list(): Promise<import('./session-logs').SessionLogEntry[]>
+    start(sessionId: string): Promise<void>
+    stop(sessionId: string): Promise<void>
+    read(id: string): Promise<string>
+    bookmark(id: string, bookmarked: boolean): Promise<void>
+    export(id: string): Promise<void>
+  }
   platform: string
   updates: {
     status(): Promise<UpdateStatus>
@@ -29,6 +47,7 @@ export interface TerminalApi {
     onStatus(listener: (status: UpdateStatus) => void): () => void
   }
   app: {
+    openUrl(url: string): Promise<void>
     setTheme?(themeId: Settings['themeId']): void
     onNotice(listener: (message: string) => void): () => void
     onShortcut(
@@ -40,7 +59,7 @@ export interface TerminalApi {
       }) => void,
     ): () => void
   }
-  wsl: { list(): Promise<string[]> }
+  wsl: { list(): Promise<string[]>; inventory(): Promise<import('./contracts').WslDistribution[]> }
   monitoring: {
     setVisible(sessionId: string, visible: boolean): Promise<void>
     retry(sessionId: string): Promise<void>
@@ -85,7 +104,10 @@ export interface TerminalApi {
   identities: {
     list(): Promise<SshIdentity[]>
     save(identity: SshIdentity, secret?: string): Promise<SshIdentity>
-    remove(id: string, options?: { replacementId?: string; detach?: boolean; confirmMerge?: boolean }): Promise<void>
+    remove(
+      id: string,
+      options?: { replacementId?: string; detach?: boolean; confirmMerge?: boolean },
+    ): Promise<void>
     chooseKey(): Promise<string | undefined>
     discoverSsh(): Promise<SshIdentity[]>
   }

@@ -80,3 +80,66 @@ button.host-tag {
   cursor: pointer;
   font-size: 18px;
 }
+
+.host-x11-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  margin: 3px 0 9px;
+}
+.host-x11-option > .checkbox-label {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  flex-direction: row;
+}
+.host-x11-option input[type='checkbox'] {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+.host-x11-help {
+  position: static;
+}
+.host-x11-help > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  border-radius: 4px;
+}
+.host-x11-help > summary::-webkit-details-marker {
+  display: none;
+}
+.host-x11-help > summary:hover,
+.host-x11-help[open] > summary {
+  color: var(--accent);
+  background: var(--surface);
+}
+.host-x11-help > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.host-x11-help > p {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  top: 26px;
+  width: 280px;
+  max-width: 65vw;
+  margin: 4px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  box-shadow: 0 6px 20px #0003;
+}

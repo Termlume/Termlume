@@ -222,3 +222,48 @@ it('rendersMemoryAndSwapCapacityInTheLivePanelAndRemovesStaleUnavailableValues',
   )
   expect(screen.queryByRole('img', { name: /Занято/ })).toBeNull()
 })
+
+it('opens monitoring for WSL but continues to reject Telnet', () => {
+  let calls = 0
+  const service = new MonitoringService(
+    () => ({
+      profile: { protocol: 'wsl', distribution: 'Ubuntu' } as HostProfile,
+      exec: async () => {
+        calls++
+        return 'Linux'
+      },
+    }),
+    () => {},
+  )
+  try {
+    expect(() => service.setVisible('wsl', true)).not.toThrow()
+    expect(calls).toBeGreaterThan(0)
+  } finally {
+    service.close()
+  }
+  const telnet = new MonitoringService(
+    () => ({
+      profile: { protocol: 'telnet' } as HostProfile,
+      exec: async () => '',
+    }),
+    () => {},
+  )
+  expect(() => telnet.setVisible('telnet', true)).toThrow(/SSH|WSL/)
+  telnet.close()
+})
+it('subscribes a connected WSL panel to metrics in either placement', () => {
+  const api = apiFixture()
+  const view = render(
+    createElement(MonitoringPanel, {
+      sessionId: 'wsl',
+      profile: { protocol: 'wsl', name: 'Ubuntu' } as HostProfile,
+      connected: true,
+      placement: 'sidebar',
+    }),
+  )
+  expect(api.calls).toEqual([{ id: 'wsl', visible: true }])
+  act(() => api.emit('wsl', { ...snapshot, cpuPercent: { status: 'ok', value: 12 } }))
+  expect(screen.queryByText(/доступен в SSH-сеансах/)).toBeNull()
+  expect(screen.getByRole('img', { name: /Загрузка CPU/ })).toBeDefined()
+  view.unmount()
+})

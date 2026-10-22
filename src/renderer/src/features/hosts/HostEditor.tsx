@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { HighlightRulesEditor } from '../settings/HighlightRulesEditor'
+import { WslDistributionSelect } from './WslDistributionSelect'
 import type { HighlightRule } from '../../../../shared/highlight-rules'
-import { X, Server, KeyRound } from 'lucide-react'
+import { X, Server, KeyRound, Info } from 'lucide-react'
 import type { HostProfile, SshIdentity } from '../../../../shared/contracts'
 import { hostSchema } from '../../../../shared/schemas'
 import './hosts.css'
@@ -51,6 +52,9 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     profile?.protocol === 'ftp' ? profile.security : 'explicit-tls',
   )
   const [tagsInput, setTagsInput] = useState((profile?.tags || []).join(', '))
+  const [x11Forwarding, setX11Forwarding] = useState(
+    profile?.protocol === 'ssh' && !!profile.x11Forwarding,
+  )
   const [highlightRules, setHighlightRules] = useState<HighlightRule[] | undefined>(
     profile?.highlightRules,
   )
@@ -59,7 +63,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
     [favorite, setFavorite] = useState(profile?.favorite || false),
     [color, setColor] = useState(profile?.color || '#cba6f7')
   const [distribution, setDistribution] = useState(
-      profile?.protocol === 'wsl' ? profile.distribution : 'Ubuntu',
+      profile?.protocol === 'wsl' ? profile.distribution : '',
     ),
     [encoding, setEncoding] = useState<'utf8' | 'windows-1251' | 'cp866'>(
       profile?.protocol === 'telnet' ? profile.encoding : 'utf8',
@@ -165,6 +169,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
                   ? profile.secretRef
                   : undefined,
               monitoringEnabled: true,
+              x11Forwarding: protocol === 'ssh' ? x11Forwarding : undefined,
             }
           : protocol === 'ftp'
             ? {
@@ -269,15 +274,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
           </label>
         </div>
         {protocol === 'wsl' ? (
-          <label>
-            Дистрибутив WSL
-            <input
-              required
-              value={distribution}
-              onChange={(event) => setDistribution(event.target.value)}
-              placeholder="Ubuntu"
-            />
-          </label>
+          <WslDistributionSelect value={distribution} onChange={setDistribution} />
         ) : (
           <div className="form-row">
             <label>
@@ -434,6 +431,27 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               </label>
             )}
           </>
+        )}
+        {protocol === 'ssh' && (
+          <div className="host-x11-option">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={x11Forwarding}
+                onChange={(event) => setX11Forwarding(event.target.checked)}
+              />
+              Графические приложения X11
+            </label>
+            <details className="host-x11-help">
+              <summary aria-label="О перенаправлении X11">
+                <Info size={14} aria-hidden="true" />
+              </summary>
+              <p>
+                Окна приложений с сервера появятся в Windows. На сервере нужны xauth и X11Forwarding
+                yes. Включайте для доверенных серверов.
+              </p>
+            </details>
+          </div>
         )}
         {protocol === 'ftp' && (
           <>

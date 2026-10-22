@@ -37,7 +37,9 @@ const available: UpdateStatus = {
 it('offers each new version once and persists deferral while leaving manual access', async () => {
   const { update, emit } = setup(available)
   const modalChange = vi.fn()
-  const view = render(<UpdateNotice settings={{} as Settings} onSaved={vi.fn()} onOpenChange={modalChange} />)
+  const view = render(
+    <UpdateNotice settings={{} as Settings} onSaved={vi.fn()} onOpenChange={modalChange} />,
+  )
   await screen.findByRole('dialog')
   expect(modalChange).toHaveBeenLastCalledWith(true)
   expect(screen.getByText(/Перенос файлов/)).toBeTruthy()
@@ -88,4 +90,20 @@ it('renders release notes as inert text and extracts version specific changelog'
   )
   expect(releaseNotesText('<script>bad()</script>')).not.toContain('bad')
   expect(changelogVersion('## Unreleased\nnext\n## 1.0\nfixed\n## 0.9\nold', '1.0')).toBe('fixed')
+})
+
+it('renders release Markdown headings, lists, emphasis and code instead of source markers', async () => {
+  setup({
+    ...available,
+    releaseNotes:
+      '## Исправления\n\n- Исправлен **WSL**.\n- Масштаб через `Ctrl+колесо`.\n\n### Терминал\n\nОписание.',
+  })
+  render(<UpdateNotice settings={{} as Settings} onSaved={vi.fn()} />)
+  await screen.findByRole('dialog')
+  expect(screen.getByRole('heading', { name: 'Исправления' })).toBeDefined()
+  expect(screen.getByRole('heading', { name: 'Терминал' })).toBeDefined()
+  expect(screen.getAllByRole('listitem')).toHaveLength(2)
+  expect(screen.getByText('WSL').tagName).toBe('STRONG')
+  expect(screen.getByText('Ctrl+колесо').tagName).toBe('CODE')
+  expect(screen.queryByText(/## Исправления/)).toBeNull()
 })

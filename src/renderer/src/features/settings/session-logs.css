@@ -1,0 +1,83 @@
+.session-journal {
+  display: grid;
+  gap: 12px;
+}
+.session-journal h3,
+.session-journal p {
+  margin: 0;
+}
+.session-journal details > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.session-journal summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.journal-limits {
+  display: flex;
+  gap: 16px;
+  margin: 12px 0;
+}
+.journal-limits label {
+  display: grid;
+  gap: 6px;
+}
+.journal-limits input {
+  width: 110px;
+}
+.journal-browser {
+  display: grid;
+  grid-template-columns: minmax(150px, 32%) minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 300px;
+  overflow: hidden;
+}
+.journal-list {
+  max-height: 460px;
+  overflow: auto;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+}
+.journal-list button {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  margin-bottom: 6px;
+  white-space: normal;
+}
+.journal-list button[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+.journal-list small {
+  color: var(--muted);
+}
+.journal-detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.journal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.journal-detail pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-height: 360px;
+  flex: 1;
+  font:
+    12px/1.6 Consolas,
+    monospace;
+  color: var(--text);
+  user-select: text;
+}

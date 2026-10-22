@@ -1,6 +1,5 @@
 import { sessionSourceText } from './session-source'
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { MonitorItemsEditor } from './MonitorItemsEditor'
 import { createPortal } from 'react-dom'
 import type { Metric, MetricSnapshot } from '../../../../shared/contracts'
 import {
@@ -38,7 +37,6 @@ export function MonitoringBar({
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | undefined>()
   const [actionError, setActionError] = useState('')
-  const [configuring, setConfiguring] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -71,21 +69,6 @@ export function MonitoringBar({
   const summary = `${server}\nCPU: ${cpu === undefined ? '—' : cpu.toFixed(1) + '%'}\nRAM: ${ram ? bytes(ram.used) + ' / ' + bytes(ram.total) : '—'}\n↑ ${network ? bytes(network.tx) + '/с' : '—'}  ↓ ${network ? bytes(network.rx) + '/с' : '—'}\nUptime: ${uptime === undefined ? '—' : uptimeText(uptime)}\nПользователи: ${users?.map((s) => s.user).join(', ') || '—'}\n${disks?.map((d) => `${d.mount}: ${bytes(d.used)} / ${bytes(d.total)} (${d.percent}%)`).join('\n') || ''}`
   return (
     <MonitoringHoverGroup expanded={expanded}>
-      <button
-        type="button"
-        className="monitor-configure"
-        onClick={() => setConfiguring(!configuring)}
-        aria-expanded={configuring}
-      >
-        Настроить показатели
-      </button>
-      {configuring && onVisibleItemsChange && (
-        <MonitorItemsEditor
-          value={visibleItems}
-          onChange={onVisibleItemsChange}
-          onReset={onResetItems}
-        />
-      )}
       <div
         ref={barRef}
         tabIndex={-1}

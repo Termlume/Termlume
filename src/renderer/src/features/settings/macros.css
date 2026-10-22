@@ -3,20 +3,57 @@
   margin-top: 20px;
   padding-top: 5px;
 }
-.macro-edit-list {
+.macro-library-toolbar {
   display: grid;
-  gap: 12px;
-  margin-bottom: 12px;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  gap: 8px;
+  margin: 14px 0;
 }
-.macro-editor {
-  margin: 0;
-  padding: 12px;
+.macro-library {
+  display: grid;
+  grid-template-columns: minmax(140px, 32%) minmax(0, 1fr);
   border: 1px solid var(--border);
   border-radius: 8px;
+  overflow: hidden;
+  min-height: 280px;
+}
+.macros-settings > select {
+  max-width: 100%;
+  margin-bottom: 12px;
+}
+.macro-library-list {
+  padding: 8px;
+  max-height: 480px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+.macro-library-list button {
+  display: grid;
+  width: 100%;
+  gap: 5px;
+  text-align: left;
+  white-space: normal;
+  margin-bottom: 6px;
+}
+.macro-library-list button[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+.macro-library-list span,
+.macro-library-list small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.macro-editor {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  border: 0;
   min-width: 0;
 }
 .macro-editor legend {
-  padding: 0 5px;
+  padding: 8px 0 0;
   color: var(--muted);
   font-size: 11px;
 }
@@ -32,10 +69,9 @@
 }
 .macro-editor-heading {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 31px;
+  grid-template-columns: minmax(0, 1fr) 31px;
   gap: 12px;
   align-items: end;
-  margin-bottom: 12px;
 }
 .macro-command {
   font-family: Consolas, monospace;
@@ -45,16 +81,31 @@
   align-items: center;
   gap: 6px;
 }
+.macro-editor summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.macro-editor label.macro-host {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.macro-editor .macro-host input {
+  width: auto;
+}
+.macro-empty {
+  padding: 14px;
+}
 @media (max-width: 650px) {
-  .macro-editor-heading {
-    grid-template-columns: minmax(0, 1fr) 31px;
+  .macro-library-toolbar {
+    grid-template-columns: 1fr auto;
   }
-  .macro-editor-heading label:nth-child(2) {
-    grid-column: 1;
-    grid-row: 2;
+  .macro-library-toolbar > input {
+    grid-column: 1 / -1;
   }
-  .macro-editor-heading button {
-    grid-column: 2;
-    grid-row: 1;
+  .macro-library {
+    grid-template-columns: minmax(120px, 35%) minmax(0, 1fr);
   }
 }

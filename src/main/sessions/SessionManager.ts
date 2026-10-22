@@ -27,6 +27,11 @@ export class SessionManager {
       ownerId: number,
     ) => SessionAdapter | Promise<SessionAdapter>,
     private sink: (ownerId: number, event: SessionEvent) => void,
+    private journal?: {
+      open(id: string, profile: SessionProfile): Promise<void>
+      output(id: string, data: Uint8Array): void
+      close(id: string): Promise<void>
+    },
   ) {}
   async open(ownerId: number, profile: SessionProfile): Promise<string> {
     const id = randomUUID(),
@@ -64,6 +69,7 @@ export class SessionManager {
     entry.off = adapter.subscribe((event) => {
       if (entry.closed || entry.ending) return
       if (event.type === 'data') {
+        this.journal?.output(id, event.data)
         entry.output.push(event.data)
         entry.cwd?.feed(event.data)
       } else if (event.type === 'closed') {
@@ -78,6 +84,7 @@ export class SessionManager {
       } else emit(event)
     })
     this.entries.set(id, entry)
+    await this.journal?.open(id, profile).catch(() => {})
     emit({ type: 'state', state: 'connecting' })
     queueMicrotask(() =>
       adapter
@@ -150,6 +157,7 @@ export class SessionManager {
     entry.closing = entry.adapter
       .close()
       .catch(() => {})
+      .then(() => this.journal?.close(id).catch(() => {}))
       .finally(() => this.entries.delete(id))
     return entry.closing
   }

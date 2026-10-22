@@ -87,6 +87,110 @@ it('accepts only a WSL distribution root and rejects arbitrary network shares an
     expect(() => wslDistribution(root)).toThrow()
 })
 
+it('lists DrvFS mount entries from Linux even when Windows cannot stat their UNC paths', async () => {
+  const root = '\\\\wsl.localhost\\Ubuntu'
+  const run = vi.fn(async (_distribution: string, _args: string[]) =>
+    [
+      'c',
+      'd',
+      '4096',
+      '1700000000.25',
+      '755',
+      'root',
+      'root',
+      'folder with $name',
+      'd',
+      '0',
+      '1700000001',
+      '770',
+      'alice',
+      'users',
+      '',
+    ].join('\0'),
+  )
+  run.mockImplementationOnce(async () => ['c', 'folder with $name', 'pagefile.sys', ''].join('\0'))
+  const files = new WslFileAccess(run)
+  const listing = await files.list(root, join(root, 'mnt'))
+  expect(listing.entries).toMatchObject([
+    { name: 'c', type: 'directory', permissions: 0o755, modifiedAt: 1700000000250 },
+    { name: 'folder with $name', type: 'directory', owner: 'alice' },
+    { name: 'pagefile.sys', type: 'file', size: 0 },
+  ])
+  expect(run.mock.calls[1]).toEqual([
+    'Ubuntu',
+    [
+      'find',
+      '-H',
+      '/mnt',
+      '-mindepth',
+      '1',
+      '-maxdepth',
+      '1',
+      '-printf',
+      '%f\\0%y\\0%s\\0%T@\\0%m\\0%u\\0%g\\0',
+    ],
+  ])
+  await expect(files.list(root, 'C:\\Windows')).rejects.toMatchObject({ code: 'unsafe-path' })
+})
+
+it('reports Linux listing errors without silently dropping inaccessible mount entries', async () => {
+  const files = new WslFileAccess(async () => {
+    throw new Error('Permission denied')
+  })
+  await expect(files.list('\\\\wsl.localhost\\Ubuntu', '.')).rejects.toThrow('Permission denied')
+})
+
+it.runIf(process.platform === 'win32')(
+  'keeps mounted-drive transfers scoped and rejects Linux symlinks before mapping',
+  async () => {
+    const { root: native, outside } = await fixture()
+    const root = '\\\\wsl.localhost\\Ubuntu'
+    const run = vi.fn(async (_distribution: string, args: string[]) => {
+      if (args[0] === 'stat') return '81a4'
+      if (args[0] === 'readlink') return '/mnt/c/fixture\n'
+      if (args[0] === 'wslpath') return native + '\n'
+      throw new Error('Unexpected command')
+    })
+    const files = new WslFileAccess(run)
+    await fs.writeFile(join(native, 'source.txt'), 'mounted drive')
+    const remote = join(root, 'mnt', 'c', 'fixture', 'source.txt')
+    expect(await files.accessiblePath(root, remote, true)).toBe(await fs.realpath(join(native, 'source.txt')))
+    await files.transfer(
+      root,
+      {
+        sessionId: 'mounted',
+        direction: 'download',
+        source: remote,
+        target: join(outside, 'download.txt'),
+        localRoot: outside,
+        overwrite: false,
+      },
+      new AbortController().signal,
+      () => {},
+    )
+    expect(await fs.readFile(join(outside, 'download.txt'), 'utf8')).toBe('mounted drive')
+    await expect(
+      files.transfer(
+        root,
+        {
+          sessionId: 'mounted',
+          direction: 'download',
+          source: 'C:\\Windows\\win.ini',
+          target: join(outside, 'escape.txt'),
+          localRoot: outside,
+          overwrite: false,
+        },
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toMatchObject({ code: 'unsafe-path' })
+    run.mockResolvedValueOnce('a1ff')
+    await expect(files.accessiblePath(root, remote, true)).rejects.toMatchObject({
+      code: 'unsafe-link',
+    })
+  },
+)
+
 it('reports Linux command failures instead of claiming permissions changed', async () => {
   const { root, files, run } = await fixture()
   const path = join(root, 'owned-by-root')
@@ -156,12 +260,30 @@ it('copies upload and download jobs through the scoped distribution adapter', as
 })
 
 it('does not overwrite a local file created while a WSL download is running', async () => {
-  const {root,outside,files}=await fixture()
-  const source=join(root,'source.bin'),target=join(outside,'race.bin')
-  await fs.writeFile(source,Buffer.alloc(256*1024,7))
-  let appeared=false
-  await expect(files.transfer(root,{sessionId:'test',direction:'download',source,target,overwrite:false,localRoot:outside},new AbortController().signal,done=>{
-    if(done>0 && !appeared){appeared=true;writeFileSync(target,'keep this file')}
-  })).rejects.toMatchObject({code:'exists'})
-  expect(await fs.readFile(target,'utf8')).toBe('keep this file')
+  const { root, outside, files } = await fixture()
+  const source = join(root, 'source.bin'),
+    target = join(outside, 'race.bin')
+  await fs.writeFile(source, Buffer.alloc(256 * 1024, 7))
+  let appeared = false
+  await expect(
+    files.transfer(
+      root,
+      {
+        sessionId: 'test',
+        direction: 'download',
+        source,
+        target,
+        overwrite: false,
+        localRoot: outside,
+      },
+      new AbortController().signal,
+      (done) => {
+        if (done > 0 && !appeared) {
+          appeared = true
+          writeFileSync(target, 'keep this file')
+        }
+      },
+    ),
+  ).rejects.toMatchObject({ code: 'exists' })
+  expect(await fs.readFile(target, 'utf8')).toBe('keep this file')
 })

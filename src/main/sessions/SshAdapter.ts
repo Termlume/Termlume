@@ -1,5 +1,7 @@
 import { Client, createAgent, utils, type BaseAgent, type ClientChannel } from 'ssh2'
 import { readFile, stat } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { attachX11Bridge, type X11Endpoint } from '../x11/bridge'
 import type { HostProfile, AuthAnswer, TrustAnswer, SshIdentity } from '../../shared/contracts'
 import { AppError } from '../../shared/errors'
 import { EventAdapter } from './EventAdapter'
@@ -20,6 +22,8 @@ interface Options {
   remember?: (value: string) => Promise<void>
   clearStoredSecret?: () => Promise<void>
   fileReady?: () => Promise<unknown>
+  x11?: () => Promise<{ endpoint: X11Endpoint; release: () => void }>
+  notice?: (message: string) => void
 }
 
 function authenticationError(error: unknown) {
@@ -64,6 +68,7 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
   private connected = false
   private closed = false
   private rememberSecret = true
+  private closeX11?: () => void
 
   constructor(
     readonly profile: Extract<HostProfile, { protocol: 'ssh' | 'sftp' }>,
@@ -83,7 +88,17 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
   }
 
   async connect(signal: AbortSignal): Promise<void> {
-    const identity: SshIdentity | undefined = this.options.identity || (this.profile.agentEndpoint ? { id: this.profile.id, name: this.profile.name, method: 'agent', agentEndpoint: this.profile.agentEndpoint, agentFingerprint: this.profile.agentFingerprint } : undefined)
+    const identity: SshIdentity | undefined =
+      this.options.identity ||
+      (this.profile.agentEndpoint
+        ? {
+            id: this.profile.id,
+            name: this.profile.name,
+            method: 'agent',
+            agentEndpoint: this.profile.agentEndpoint,
+            agentFingerprint: this.profile.agentFingerprint,
+          }
+        : undefined)
     const method = identity?.method || this.profile.auth
     const secretRef = identity ? identity.secretRef : this.profile.secretRef
     let secret = this.options.initialSecret
@@ -195,7 +210,7 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
         this.client.destroy()
       }
       const abort = () => fail(new AppError('canceled', 'Подключение отменено'))
-      const ready = () => {
+      const ready = async () => {
         if (this.closed || signal.aborted) return abort()
         if (this.profile.protocol === 'sftp') {
           this.connected = true
@@ -207,35 +222,84 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
           }, fail)
           return
         }
-        this.client.shell(
-          { term: 'xterm-256color', cols: this.cols, rows: this.rows },
-          (error, channel) => {
-            if (error)
-              return fail(new AppError('shell-denied', 'Сервер не разрешил открыть терминал', true))
+        let x11: { cookie: Buffer; single: boolean } | undefined
+        if (this.profile.protocol === 'ssh' && this.profile.x11Forwarding) {
+          try {
+            if (!this.options.x11) throw new Error('X11: локальный X-сервер недоступен.')
+            const hasXauth = await this.remoteHasXauth()
+            if (!hasXauth)
+              throw new Error(
+                'X11: на SSH-сервере не найден xauth или запрещена его проверка. Проверьте пакет xauth и переподключитесь.',
+              )
+            const lease = await this.options.x11()
             if (this.closed || signal.aborted) {
-              channel.close()
+              lease.release()
               return abort()
             }
-            this.shell = channel
-            this.connected = true
-            channel.on('data', (data: Buffer) => this.emit({ type: 'data', data }))
-            channel.stderr.on('data', (data: Buffer) => this.emit({ type: 'data', data }))
-            channel.on('close', () => this.emit({ type: 'closed', reason: 'remote-exit' }))
-            channel.on('error', () =>
-              this.emit({
-                type: 'error',
-                error: {
-                  code: 'shell-error',
-                  message: 'Терминальный канал закрыт',
-                  retryable: true,
-                },
-              }),
+            x11 = { cookie: randomBytes(16), single: false }
+            const detach = attachX11Bridge(this.client, x11.cookie, lease.endpoint, (message) =>
+              this.x11Notice(message),
             )
-            settled = true
-            signal.removeEventListener('abort', abort)
-            resolve()
-          },
-        )
+            this.closeX11 = () => {
+              detach()
+              lease.release()
+              this.closeX11 = undefined
+            }
+          } catch (error) {
+            this.x11Notice(
+              error instanceof Error ? error.message : 'X11: не удалось запустить X-сервер.',
+            )
+          }
+        }
+        if (this.closed || signal.aborted) {
+          this.closeX11?.()
+          return abort()
+        }
+        const openShell = (forwarding: typeof x11) =>
+          this.client.shell(
+            { term: 'xterm-256color', cols: this.cols, rows: this.rows },
+            forwarding ? { x11: forwarding } : {},
+            (error, channel) => {
+              if (error && forwarding) {
+                this.closeX11?.()
+                this.x11Notice(
+                  'X11: сервер отклонил forwarding. Проверьте X11Forwarding yes и XAuthLocation в sshd_config; терминал открыт без X11.',
+                )
+                openShell(undefined)
+                return
+              }
+              if (error)
+                return fail(
+                  new AppError('shell-denied', 'Сервер не разрешил открыть терминал', true),
+                )
+              if (this.closed || signal.aborted) {
+                channel.close()
+                return abort()
+              }
+              this.shell = channel
+              this.connected = true
+              channel.on('data', (data: Buffer) => this.emit({ type: 'data', data }))
+              channel.stderr.on('data', (data: Buffer) => this.emit({ type: 'data', data }))
+              channel.on('close', () => {
+                this.closeX11?.()
+                this.emit({ type: 'closed', reason: 'remote-exit' })
+              })
+              channel.on('error', () =>
+                this.emit({
+                  type: 'error',
+                  error: {
+                    code: 'shell-error',
+                    message: 'Терминальный канал закрыт',
+                    retryable: true,
+                  },
+                }),
+              )
+              settled = true
+              signal.removeEventListener('abort', abort)
+              resolve()
+            },
+          )
+        openShell(x11)
       }
       signal.addEventListener('abort', abort, { once: true })
       this.client.on('error', (error) => {
@@ -258,11 +322,14 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
         fail(new AppError(authFailed ? 'ssh-auth' : 'ssh-connect', message, true))
       })
       this.client.on('close', () => {
+        this.closeX11?.()
         const wasConnected = this.connected
         this.connected = false
         if (wasConnected) this.emit({ type: 'closed', reason: 'transport' })
       })
-      this.client.once('ready', ready)
+      this.client.once('ready', () => {
+        void ready().catch(fail)
+      })
       this.client.connect({
         host: this.profile.host.replace(/^\[|\]$/g, ''),
         port: this.profile.port,
@@ -320,6 +387,36 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
     if (this.profile.protocol === 'sftp')
       throw new AppError('terminal-unsupported', 'Файловый сеанс не имеет терминала')
   }
+  private x11Notice(message: string) {
+    this.options.notice?.(message)
+    this.emit({ type: 'data', data: Buffer.from(`\r\n[${message}]\r\n`) })
+  }
+  private remoteHasXauth(): Promise<boolean> {
+    return new Promise((resolve) => {
+      let channel: ClientChannel | undefined,
+        settled = false
+      const finish = (value: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        channel?.close()
+        resolve(value)
+      }
+      const timeout = setTimeout(() => finish(false), 5000)
+      this.client.exec('command -v xauth >/dev/null 2>&1', (error, stream) => {
+        if (error || settled) {
+          stream?.close()
+          return finish(false)
+        }
+        channel = stream
+        stream.on('data', () => {})
+        stream.stderr.on('data', () => {})
+        stream.once('exit', (code) => finish(code === 0))
+        stream.once('close', () => finish(false))
+        stream.once('error', () => finish(false))
+      })
+    })
+  }
   write(data: string) {
     this.requireTerminal()
     this.shell?.write(data)
@@ -342,6 +439,7 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
     if (this.closed) return
     this.closed = true
     this.connected = false
+    this.closeX11?.()
     this.shell?.close()
     this.client.destroy()
   }

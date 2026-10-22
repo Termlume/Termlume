@@ -66,8 +66,18 @@ async function main() {
       })
     })
     assert.equal(native, true, 'Packaged native PTY did not produce its marker')
+    const x11 = await page.evaluate(async () => {
+      const available = await window.terminalApi.x11.status()
+      const started = await window.terminalApi.x11.start()
+      await window.terminalApi.x11.stop()
+      const stopped = await window.terminalApi.x11.status()
+      return { available: available.available, started: started.state, stopped: stopped.state }
+    })
+    assert.deepEqual(x11, { available: true, started: 'running', stopped: 'stopped' }, 'Packaged X11 runtime failed')
+    assert.equal(await page.evaluate(() => window.terminalApi.logs.settings().then(config => config.auto)), false, 'Session recording should be opt-in')
+
     console.log(
-      'PACKAGE_OK: isolated userData, renderer/preload, packaged native PTY, resize and teardown',
+      'PACKAGE_OK: isolated userData, renderer/preload, packaged native PTY, authenticated X11 start/stop, journal defaults, resize and teardown',
     )
   } finally {
     await application.close()

@@ -32,6 +32,7 @@ export type HostProfile = HostBase &
         keyPath?: string
         secretRef?: string
         monitoringEnabled: boolean
+        x11Forwarding?: boolean
       }
     | {
         protocol: 'sftp'
@@ -202,6 +203,12 @@ export interface FileEntry {
   owner?: string
   group?: string
 }
+export interface WslDistribution {
+  name: string
+  isDefault: boolean
+  state: string
+  version: 1 | 2
+}
 export type FileAccessMode = 'sftp' | 'scp' | 'ftp' | 'ftps' | 'wsl' | 'local'
 export interface FileCapabilities {
   list: boolean
@@ -280,8 +287,12 @@ export interface TerminalMacro {
   name: string
   command: string
   description: string
+  category?: string
+  hostIds?: string[]
 }
 export interface Settings {
+  x11Autostart?: boolean
+  x11Clipboard?: boolean
   followTerminalDirectory?: boolean
   lastUsername?: string
   highlightRules?: import('./highlight-rules').HighlightRule[]
@@ -323,3 +334,11 @@ export interface FileActivity {
 }
 
 export type FileOpenMode = 'default' | 'choose' | 'text'
+
+export interface X11Status {
+  state: 'stopped' | 'starting' | 'running' | 'error'
+  available: boolean
+  activeSessions: number
+  display?: string
+  message?: string
+}

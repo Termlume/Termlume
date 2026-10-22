@@ -86,6 +86,7 @@ export const hostSchema = z.discriminatedUnion('protocol', [
     keyPath: z.string().max(4096).optional(),
     secretRef: id.optional(),
     monitoringEnabled: z.boolean().default(true),
+    x11Forwarding: z.boolean().default(false),
   }),
   z.object({
     ...base,
@@ -141,6 +142,8 @@ export const terminalMacroSchema = z.object({
       'Команда должна занимать одну строку.',
     ),
   description: z.string().max(200).default(''),
+  category: z.string().trim().max(60).optional(),
+  hostIds: z.array(z.string().min(1).max(100)).max(1000).optional(),
 })
 export const terminalMacrosSchema = z
   .array(terminalMacroSchema)
@@ -152,6 +155,8 @@ export const terminalMacrosSchema = z
       context.addIssue({ code: 'custom', message: 'Повторяющийся идентификатор макроса.' })
   })
 export const settingsSchema = z.object({
+  x11Autostart: z.boolean().default(true),
+  x11Clipboard: z.boolean().default(true),
   followTerminalDirectory: z.boolean().default(true),
   lastUsername: z.string().trim().min(1).max(100).optional(),
   highlightRules: highlightRulesSchema.default(DEFAULT_HIGHLIGHT_RULES),
@@ -203,6 +208,8 @@ export const settingsSchema = z.object({
 // Zod 4 applies defaults even inside partial() fields. IPC patches must contain
 // only supplied values, otherwise unrelated updates overwrite saved preferences.
 export const settingsPatchSchema = z.object({
+  x11Autostart: settingsSchema.shape.x11Autostart.removeDefault().optional(),
+  x11Clipboard: settingsSchema.shape.x11Clipboard.removeDefault().optional(),
   followTerminalDirectory: settingsSchema.shape.followTerminalDirectory.removeDefault().optional(),
   lastUsername: settingsSchema.shape.lastUsername,
   highlightRules: settingsSchema.shape.highlightRules.removeDefault().optional(),
@@ -245,6 +252,16 @@ export const sshIdentitySchema = z.object({
   agentFingerprint: z.string().max(256).optional(),
 })
 export const requestSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('app.openUrl'),
+    url: z
+      .url()
+      .max(4096)
+      .refine((value) => /^https?:\/\//i.test(value)),
+  }),
+  z.object({ action: z.literal('x11.status') }),
+  z.object({ action: z.literal('x11.start') }),
+  z.object({ action: z.literal('x11.stop') }),
   z.object({ action: z.literal('updates.status') }),
   z.object({ action: z.literal('updates.check') }),
   z.object({ action: z.literal('updates.download') }),
@@ -408,6 +425,30 @@ export const requestSchema = z.discriminatedUnion('action', [
     ]),
   }),
   z.object({ action: z.literal('wsl.list') }),
+  z.object({ action: z.literal('logs.settings') }),
+  z.object({
+    action: z.literal('logs.configure'),
+    patch: z.object({
+      folder: z
+        .string()
+        .min(1)
+        .max(4096)
+        .refine((v) => !v.includes('\u0000'))
+        .optional(),
+      auto: z.boolean().optional(),
+      hostIds: z.array(id).max(10000).optional(),
+      retentionDays: z.number().int().min(1).max(3650).optional(),
+      maxSizeMb: z.number().int().min(1).max(1024).optional(),
+    }),
+  }),
+  z.object({ action: z.literal('logs.chooseFolder') }),
+  z.object({ action: z.literal('logs.list') }),
+  z.object({ action: z.literal('logs.start'), sessionId: id }),
+  z.object({ action: z.literal('logs.stop'), sessionId: id }),
+  z.object({ action: z.literal('logs.read'), id }),
+  z.object({ action: z.literal('logs.bookmark'), id, bookmarked: z.boolean() }),
+  z.object({ action: z.literal('logs.export'), id }),
+  z.object({ action: z.literal('wsl.inventory') }),
   z.object({
     action: z.literal('sessions.openTemporary'),
     profile: hostSchema,

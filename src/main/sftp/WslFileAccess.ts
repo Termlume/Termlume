@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createReadStream, createWriteStream, constants } from 'node:fs'
-import { basename, dirname, join, relative, sep, isAbsolute } from 'node:path'
+import { basename, dirname, join, relative, sep, isAbsolute, resolve, parse } from 'node:path'
 import type { FileCapabilities, FileEntry, FileListing, FileMutation } from '../../shared/contracts'
 import { AppError } from '../../shared/errors'
 import type { TransferJob } from './TransferQueue'
@@ -22,7 +22,7 @@ const runWsl: WslCommandRunner = async (distribution, args) => {
       encoding: 'utf8',
       windowsHide: true,
       timeout: 15000,
-      maxBuffer: 1024 * 1024,
+      maxBuffer: 16 * 1024 * 1024,
     },
   )
   return stdout
@@ -62,8 +62,117 @@ export class WslFileAccess {
     within(root, target)
     return '/' + relative(root, target).split(sep).join('/')
   }
+  // DrvFS mount points are not accessible through the WSL UNC provider. Resolve
+  // them with WSL, then retain the existing local adapter's canonical-path guards.
+  private async nativeLocation(
+    root: string,
+    path: string,
+    rejectLink = false,
+  ): Promise<{ root: string; path: string }> {
+    const target = resolve(root, path)
+    const linux = this.linuxPath(root, target)
+    const distribution = this.distribution(root)
+    if (rejectLink) {
+      const mode = await this.run(distribution, ['stat', '--printf=%f', '--', linux])
+      if ((parseInt(mode.trim(), 16) & 0xf000) === 0xa000)
+        throw new AppError('unsafe-link', 'Передача символических ссылок не поддерживается')
+    }
+    const parentLinux = linux === '/' ? '/' : this.linuxPath(root, dirname(target))
+    const canonical = (
+      await this.run(distribution, ['readlink', '-f', '--', linux === '/' ? '/' : parentLinux])
+    ).trimEnd()
+    if (!canonical.startsWith('/') || /[\0\r\n]/.test(canonical))
+      throw new AppError('unsafe-path', 'Не удалось определить путь WSL')
+    const windows = (await this.run(distribution, ['wslpath', '-w', canonical])).trimEnd()
+    if (/^[a-z]:\\/i.test(windows))
+      return {
+        root: parse(windows).root,
+        path: linux === '/' ? windows : join(windows, basename(target)),
+      }
+    // Resolve the mount itself (its parent may still belong to the distro).
+    const direct = (await this.run(distribution, ['wslpath', '-w', linux])).trimEnd()
+    if (/^[a-z]:\\/i.test(direct)) return { root: parse(direct).root, path: direct }
+    const targetPath = join(
+      root,
+      ...canonical.split('/').filter(Boolean),
+      ...(linux === '/' ? [] : [basename(target)]),
+    )
+    within(root, targetPath)
+    return { root, path: targetPath }
+  }
   async list(root: string, path: string): Promise<FileListing> {
     const distribution = this.distribution(root)
+    if (!this.testDistribution) {
+      const target = resolve(root, path === '.' ? root : path)
+      const linux = this.linuxPath(root, target)
+      // Reading names does not stat protected Windows system files. Keep those
+      // names visible even when Linux cannot read their metadata.
+      const names = (
+        await this.run(distribution, [
+          'find',
+          '-H',
+          linux,
+          '-mindepth',
+          '1',
+          '-maxdepth',
+          '1',
+          '-printf',
+          '%f\\0',
+        ])
+      )
+        .split('\0')
+        .filter(Boolean)
+      const output = await this.run(distribution, [
+        'find',
+        '-H',
+        linux,
+        '-mindepth',
+        '1',
+        '-maxdepth',
+        '1',
+        '-printf',
+        '%f\\0%y\\0%s\\0%T@\\0%m\\0%u\\0%g\\0',
+      ]).catch((error: { code?: number; stdout?: string }) => {
+        if (error.code === 1 && typeof error.stdout === 'string') return error.stdout
+        throw error
+      })
+      const fields = output.split('\0')
+      if (fields.pop() !== '' || fields.length % 7 !== 0)
+        throw new AppError('wsl-metadata', 'Не удалось прочитать список файлов WSL')
+      const entries: FileEntry[] = []
+      for (let index = 0; index < fields.length; index += 7) {
+        const [name, type, size, modifiedAt, permissions, owner, group] = fields.slice(
+          index,
+          index + 7,
+        )
+        if (
+          !name ||
+          /[\\/\0]/.test(name) ||
+          !Number.isFinite(Number(size)) ||
+          !Number.isFinite(Number(modifiedAt)) ||
+          !/^[0-7]{1,4}$/.test(permissions)
+        )
+          throw new AppError('wsl-metadata', 'Некорректные данные файла WSL')
+        entries.push({
+          name,
+          type: type === 'l' ? 'symlink' : type === 'd' ? 'directory' : 'file',
+          isSymlink: type === 'l',
+          size: Number(size),
+          modifiedAt: Number(modifiedAt) * 1000,
+          permissions: parseInt(permissions, 8),
+          owner,
+          group,
+        })
+      }
+      const available = new Set(entries.map((entry) => entry.name))
+      for (const name of names) {
+        if (!name || name === '.' || name === '..' || /[\\/\0]/.test(name))
+          throw new AppError('wsl-metadata', 'Некорректное имя файла WSL')
+        if (!available.has(name))
+          entries.push({ name, type: 'file', size: 0, modifiedAt: 0, isSymlink: false })
+      }
+      return { path: target, entries, mode: 'wsl', capabilities }
+    }
     const target = await ensureLocalPath(root, path === '.' ? root : path)
     const names = await fs.readdir(target)
     const entries = await Promise.all(
@@ -115,6 +224,40 @@ export class WslFileAccess {
   }
   async mutate(root: string, request: FileMutation): Promise<void> {
     const distribution = this.distribution(root)
+    if (!this.testDistribution) {
+      this.linuxPath(root, resolve(root, request.path))
+      if (request.operation !== 'mkdir' && resolve(root, request.path) === resolve(root))
+        throw new AppError('root-operation', 'Нельзя изменить корневую папку')
+      if (request.operation === 'chmod' || request.operation === 'chown') {
+        await this.nativeLocation(root, request.path, true)
+        const linux = this.linuxPath(root, resolve(root, request.path))
+        if (request.operation === 'chown') {
+          const identity = /^(?:[a-zA-Z_][a-zA-Z0-9_.-]*\$?|\d+)$/
+          if (
+            !request.owner ||
+            !request.group ||
+            !identity.test(request.owner) ||
+            !identity.test(request.group)
+          )
+            throw new AppError('invalid-owner', 'Укажите корректного владельца и группу WSL')
+          await this.run(distribution, ['chown', `${request.owner}:${request.group}`, '--', linux])
+        } else {
+          if (
+            !Number.isInteger(request.permissions) ||
+            request.permissions! < 0 ||
+            request.permissions! > 0o7777
+          )
+            throw new AppError('invalid-permissions', 'Некорректные права файла')
+          await this.run(distribution, ['chmod', request.permissions!.toString(8), '--', linux])
+        }
+        return
+      }
+      const location = await this.nativeLocation(root, request.path)
+      const service = new LocalFilesService(location.root)
+      if (request.operation === 'mkdir') return service.mkdir(location.path, request.name || '')
+      if (request.operation === 'rename') return service.rename(location.path, request.name || '')
+      return service.remove(location.path, request.fileType || 'file')
+    }
     const service = new LocalFilesService(root)
     if (request.operation === 'mkdir') return service.mkdir(request.path, request.name || '')
     if (request.operation === 'rename') return service.rename(request.path, request.name || '')
@@ -144,6 +287,20 @@ export class WslFileAccess {
       throw new AppError('invalid-permissions', 'Некорректные права файла')
     await this.run(distribution, ['chmod', request.permissions!.toString(8), '--', linuxPath])
   }
+  async move(root: string, source: string, destination: string): Promise<void> {
+    const from = await this.nativeLocation(root, source, true)
+    const to = await this.nativeLocation(root, destination)
+    if (from.root.toLowerCase() !== to.root.toLowerCase())
+      throw new AppError(
+        'cross-device',
+        'Для перемещения между файловыми системами используйте копирование',
+      )
+    return new LocalFilesService(from.root).move(from.path, to.path)
+  }
+  async accessiblePath(root: string, path: string, rejectLink = false): Promise<string> {
+    const location = await this.nativeLocation(root, path, rejectLink)
+    return ensureLocalPath(location.root, location.path)
+  }
   async transfer(
     root: string,
     job: TransferJob,
@@ -152,6 +309,21 @@ export class WslFileAccess {
     depth = 0,
   ): Promise<void> {
     signal.throwIfAborted()
+    if (!this.testDistribution && /^\\\\(?:wsl\.localhost|wsl\$)\\/i.test(root)) {
+      const remote = job.direction === 'upload' ? job.target : job.source
+      const location = await this.nativeLocation(root, remote, job.direction === 'download')
+      await new WslFileAccess(this.run, this.distribution(root)).transfer(
+        location.root,
+        {
+          ...job,
+          ...(job.direction === 'upload' ? { target: location.path } : { source: location.path }),
+        },
+        signal,
+        progress,
+        depth,
+      )
+      return
+    }
     if (depth > 128) throw new AppError('directory-limit', 'Превышена глубина папок')
     const sourceRoot = job.direction === 'upload' ? job.localRoot : root
     if ((await fs.lstat(job.source)).isSymbolicLink())

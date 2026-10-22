@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Download, RefreshCw, X, Sparkles } from 'lucide-react'
 import type { Settings, UpdateStatus } from '../../../../shared/contracts'
 import changelog from '../../../../../CHANGELOG.md?raw'
-import { releaseNotesText, changelogVersion } from './release-notes'
+import { ReleaseNotes } from './ReleaseNotes'
+import { changelogVersion } from './release-notes'
 import './updates.css'
 import { displayVersion } from '../../../../shared/version'
 
@@ -96,9 +97,9 @@ export function UpdateNotice({
       setPending(false)
     }
   }
-  const notes = releaseNotesText(
-    actionable ? status?.releaseNotes || '' : changelogVersion(changelog, status?.currentVersion),
-  )
+  const notes = actionable
+    ? status?.releaseNotes || ''
+    : changelogVersion(changelog, status?.currentVersion)
   const busy =
     pending ||
     status?.state === 'checking' ||
@@ -189,12 +190,14 @@ export function UpdateNotice({
               </p>
               <div className="update-whats-new">
                 <h3>Что нового</h3>
-                <div>
-                  {notes ||
+                <ReleaseNotes
+                  text={
+                    notes ||
                     (actionable
                       ? 'Описание изменений не опубликовано для этой версии.'
-                      : 'Новых обновлений пока не найдено.')}
-                </div>
+                      : 'Новых обновлений пока не найдено.')
+                  }
+                />
               </div>
               {status?.state === 'downloading' && (
                 <>
