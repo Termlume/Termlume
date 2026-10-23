@@ -301,6 +301,7 @@ export interface Settings {
   macros?: TerminalMacro[]
   dismissedUpdateVersion?: string
   updateChannelPolicy?: 1
+  monitoringOrder?: import('./monitoring-items').MonitorItem[]
   monitoringItems?: import('./monitoring-items').MonitorItem[]
   connectionsCollapsed?: boolean
   collapsedHostGroups?: string[]

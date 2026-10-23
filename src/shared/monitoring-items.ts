@@ -53,3 +53,29 @@ export function moveMonitorItem(items: MonitorItem[], item: MonitorItem, target:
   next.splice(to, 0, item)
   return next
 }
+
+export function completeMonitorOrder(order: readonly MonitorItem[]): MonitorItem[] {
+  return [...new Set([...order, ...MONITOR_ITEMS])]
+}
+
+// Reorder enabled slots without losing the positions of hidden metrics.
+export function mergeMonitorOrder(
+  order: readonly MonitorItem[],
+  enabled: readonly MonitorItem[],
+): MonitorItem[] {
+  let index = 0
+  return completeMonitorOrder(order).map((item) =>
+    enabled.includes(item) ? enabled[index++] : item,
+  )
+}
+
+export function configuredMonitorOrder(
+  enabled = DEFAULT_MONITOR_ITEMS,
+  order?: MonitorItem[],
+): MonitorItem[] {
+  return order ? completeMonitorOrder(order) : mergeMonitorOrder(MONITOR_ITEMS, enabled)
+}
+
+export function sortMonitorItems(items: MonitorItem[], order: MonitorItem[]): MonitorItem[] {
+  return completeMonitorOrder(order).filter((item) => items.includes(item))
+}

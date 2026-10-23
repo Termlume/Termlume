@@ -73,6 +73,8 @@ jobs:
           if ($env:RELEASE_TAG.Contains('-')) { $options += '--prerelease' } else { $options += '--latest' }
           & gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
+            & gh release edit $env:RELEASE_TAG --title "Termlume $displayVersion" --notes-file $notesFile
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & gh release upload $env:RELEASE_TAG @assets --clobber
           } else {
             & gh @options @assets

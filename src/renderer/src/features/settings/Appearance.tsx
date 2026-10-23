@@ -2,7 +2,11 @@ import { Credentials } from './Credentials'
 import { HighlightRulesEditor } from './HighlightRulesEditor'
 import { DEFAULT_HIGHLIGHT_RULES } from '../../../../shared/highlight-rules'
 import { highlightRulesSchema } from '../../../../shared/schemas'
-import { DEFAULT_MONITOR_ITEMS } from '../../../../shared/monitoring-items'
+import {
+  DEFAULT_MONITOR_ITEMS,
+  configuredMonitorOrder,
+  mergeMonitorOrder,
+} from '../../../../shared/monitoring-items'
 import { MonitorItemsEditor } from '../monitoring/MonitorItemsEditor'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
@@ -168,6 +172,9 @@ export function Appearance({
     [monitoringPlacement, setMonitoringPlacement] = useState(
       settings.monitoringPlacement ?? 'sidebar',
     ),
+    [monitoringOrder, setMonitoringOrder] = useState(
+      configuredMonitorOrder(settings.monitoringItems, settings.monitoringOrder),
+    ),
     [monitoringItems, setMonitoringItems] = useState(
       settings.monitoringItems ?? DEFAULT_MONITOR_ITEMS,
     ),
@@ -215,6 +222,7 @@ export function Appearance({
           monitoringIntervalSeconds,
           monitoringPlacement,
           monitoringItems,
+          monitoringOrder,
           macros: parsedMacros.data,
           highlightRules: parsedRules.data,
         }),
@@ -485,7 +493,14 @@ export function Appearance({
                 </label>
               </div>
               <p>Общие показатели для подключений без индивидуальной настройки:</p>
-              <MonitorItemsEditor value={monitoringItems} onChange={setMonitoringItems} />
+              <MonitorItemsEditor
+                value={monitoringItems}
+                order={monitoringOrder}
+                onChange={(items) => {
+                  setMonitoringItems(items)
+                  setMonitoringOrder((previous) => mergeMonitorOrder(previous, items))
+                }}
+              />
             </section>
             <section
               role="tabpanel"

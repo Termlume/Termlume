@@ -165,6 +165,11 @@ export const settingsSchema = z.object({
   macros: terminalMacrosSchema.default([]),
   dismissedUpdateVersion: z.string().max(100).optional(),
   updateChannelPolicy: z.literal(1).optional(),
+  monitoringOrder: z
+    .array(z.enum(MONITOR_ITEMS))
+    .max(MONITOR_ITEMS.length)
+    .refine((items) => new Set(items).size === items.length)
+    .optional(),
   monitoringItems: z
     .array(z.enum(MONITOR_ITEMS))
     .max(MONITOR_ITEMS.length)
@@ -218,6 +223,7 @@ export const settingsPatchSchema = z.object({
   macros: settingsSchema.shape.macros.removeDefault().optional(),
   dismissedUpdateVersion: settingsSchema.shape.dismissedUpdateVersion,
   updateChannelPolicy: settingsSchema.shape.updateChannelPolicy,
+  monitoringOrder: settingsSchema.shape.monitoringOrder,
   monitoringItems: settingsSchema.shape.monitoringItems.removeDefault().optional(),
   connectionsCollapsed: settingsSchema.shape.connectionsCollapsed.removeDefault().optional(),
   collapsedHostGroups: settingsSchema.shape.collapsedHostGroups.removeDefault().optional(),

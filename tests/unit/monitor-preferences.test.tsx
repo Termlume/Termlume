@@ -14,6 +14,7 @@ import { MonitorItemsEditor } from '../../src/renderer/src/features/monitoring/M
 import { MonitoringBar } from '../../src/renderer/src/features/monitoring/MonitoringBar'
 import { useMonitorPreferences } from '../../src/renderer/src/features/monitoring/useMonitorPreferences'
 import { hostSchema, settingsSchema } from '../../src/shared/schemas'
+import { configuredMonitorOrder, mergeMonitorOrder } from '../../src/shared/monitoring-items'
 import type { HostProfile } from '../../src/shared/contracts'
 
 afterEach(cleanup)
@@ -110,7 +111,7 @@ it('keeps inline configuration out of both panels and retains the context menu',
     view.unmount()
   }
 })
-it('uses defaults for older profiles, persists host order using latest fields, and resets inheritance', async () => {
+it('uses defaults for older profiles, persists host selection using latest fields, and resets inheritance', async () => {
   let persisted = { ...profile, name: 'Latest name' }
   const save = vi.fn(async (next: HostProfile) => {
     persisted = next
@@ -125,10 +126,10 @@ it('uses defaults for older profiles, persists host order using latest fields, a
   const hook = renderHook(() => useMonitorPreferences(profile, [profile], ['ram'], refresh, error))
   expect(hook.result.current.items).toEqual(['ram'])
   act(() => hook.result.current.change(['temperatures', 'cpu']))
-  expect(hook.result.current.items).toEqual(['temperatures', 'cpu'])
+  expect(hook.result.current.items).toEqual(['cpu', 'temperatures'])
   await waitFor(() => expect(save).toHaveBeenCalledOnce())
   expect(persisted.name).toBe('Latest name')
-  expect(hostSchema.parse(persisted).monitoringItems).toEqual(['temperatures', 'cpu'])
+  expect(hostSchema.parse(persisted).monitoringItems).toEqual(['cpu', 'temperatures'])
   act(() => hook.result.current.reset())
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
   expect(persisted.monitoringItems).toBeUndefined()
@@ -149,4 +150,52 @@ it('keeps temporary connections out of saved hosts and isolates overrides betwee
   hook.rerender({ host: profile })
   expect(hook.result.current.items).toEqual([])
   expect(save).not.toHaveBeenCalled()
+})
+
+it('uses settings order on re-enable and persists independent selection per saved server', async () => {
+  const first = {
+    ...profile,
+    monitoringItems: ['host', 'cpu', 'temperatures', 'ram'],
+  } as HostProfile
+  const second = { ...profile, id: 'b90d4d64-6ffb-4a13-a507-bc72539d268d', name: 'Second' }
+  let hosts = [first, second]
+  const save = vi.fn(async (next: HostProfile) => {
+    hosts = hosts.map((host) => (host.id === next.id ? next : host))
+    return next
+  })
+  Object.defineProperty(window, 'terminalApi', {
+    configurable: true,
+    value: { hosts: { list: async () => hosts, save } },
+  })
+  const defaults = ['host', 'ram', 'temperatures', 'cpu'] as const
+  const make = (host: HostProfile) =>
+    useMonitorPreferences(host, hosts, [...defaults], async () => {}, vi.fn(), [...defaults])
+  const hook = renderHook(({ host }) => make(host), { initialProps: { host: first } })
+  expect(hook.result.current.items).toEqual(defaults)
+  act(() => hook.result.current.change(['host', 'ram', 'cpu']))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  act(() => hook.result.current.change([...hook.result.current.items, 'temperatures']))
+  expect(hook.result.current.items).toEqual(defaults)
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+  act(() => hook.result.current.change(['host', 'ram', 'cpu']))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(3))
+  expect(hosts[1].monitoringItems).toBeUndefined()
+  hook.rerender({ host: second })
+  expect(hook.result.current.items).toEqual(defaults)
+  hook.unmount()
+  const restored = renderHook(() => make(hosts[0]))
+  expect(restored.result.current.items).toEqual(['host', 'ram', 'cpu'])
+})
+
+it('retains the configured position of a disabled global metric across settings serialization', () => {
+  const order = configuredMonitorOrder(['ram', 'temperatures', 'cpu'])
+  const hiddenOrder = mergeMonitorOrder(order, ['ram', 'cpu'])
+  const saved = settingsSchema.parse({
+    monitoringItems: ['ram', 'cpu'],
+    monitoringOrder: hiddenOrder,
+  })
+  const restored = configuredMonitorOrder(saved.monitoringItems, saved.monitoringOrder)
+  expect(restored.indexOf('ram')).toBeLessThan(restored.indexOf('temperatures'))
+  expect(restored.indexOf('temperatures')).toBeLessThan(restored.indexOf('cpu'))
+  expect(settingsSchema.safeParse({ monitoringOrder: ['cpu', 'cpu'] }).success).toBe(false)
 })

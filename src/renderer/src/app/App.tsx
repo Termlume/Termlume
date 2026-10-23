@@ -81,6 +81,7 @@ export default function App() {
     settings?.monitoringItems,
     catalog.refresh,
     setError,
+    settings?.monitoringOrder,
   )
   const challenge = sessions.challenges[0]
   const answerChallenge = async (

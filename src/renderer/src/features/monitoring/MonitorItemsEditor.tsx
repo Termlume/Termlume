@@ -4,6 +4,7 @@ import {
   MONITOR_ITEMS,
   MONITOR_ITEM_LABELS,
   moveMonitorItem,
+  completeMonitorOrder,
   type MonitorItem,
 } from '../../../../shared/monitoring-items'
 
@@ -11,17 +12,24 @@ export function MonitorItemsEditor({
   value,
   onChange,
   onReset,
+  order,
 }: {
   value: MonitorItem[]
   onChange: (items: MonitorItem[]) => void
   onReset?: () => void
+  order?: MonitorItem[]
 }) {
   const id = useId()
   const dragged = useRef<MonitorItem | undefined>(undefined)
   const arrowButtons = useRef(new Map<string, HTMLButtonElement>())
   const pendingFocus = useRef<string | undefined>(undefined)
   // Keep unchecked rows in their own slots. A toggle changes selection, not row placement.
-  const rowOrder = useRef([...value, ...MONITOR_ITEMS.filter((item) => !value.includes(item))])
+  const rowOrder = useRef(
+    order
+      ? completeMonitorOrder(order)
+      : [...value, ...MONITOR_ITEMS.filter((item) => !value.includes(item))],
+  )
+  if (order) rowOrder.current = completeMonitorOrder(order)
   let enabledIndex = 0
   rowOrder.current = rowOrder.current.map((item) =>
     value.includes(item) ? value[enabledIndex++] : item,
