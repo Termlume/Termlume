@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { Backend } from './Backend'
 import { autoUpdater } from 'electron-updater'
 import { UpdateService } from './updates/UpdateService'
+import { supportsAutoUpdate } from './updates/update-support'
 import { registerApi } from './ipc/register'
 import { SettingsRepository } from './storage/SettingsRepository'
 import { DataImportTransaction } from './storage/DataImportTransaction'
@@ -153,12 +154,15 @@ async function createWindow(): Promise<void> {
     {
       currentVersion: app.getVersion(),
       channel: settings?.updateChannel ?? 'stable',
-      enabled:
-        process.platform === 'win32' &&
-        app.isPackaged &&
-        !dev &&
-        !dataArg &&
-        existsSync(join(dirname(process.execPath), 'Uninstall Termlume.exe')),
+      enabled: supportsAutoUpdate({
+        platform: process.platform,
+        packaged: app.isPackaged,
+        development: !!dev,
+        customData: !!dataArg,
+        executable: process.execPath,
+        resources: process.resourcesPath,
+        env: process.env,
+      }),
     },
     (status) => {
       if (!win.webContents.isDestroyed()) win.webContents.send('terminal:update-status', status)

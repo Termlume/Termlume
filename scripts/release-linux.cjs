@@ -61,6 +61,10 @@ async function main() {
       '--config',
       configPath,
     ])
+    // Linux has separate feed files; never modify the Windows channel manifests.
+    const metadata = fs.readFileSync(path.join(root, output, 'latest-linux.yml'))
+    for (const channel of ['alpha', 'beta'])
+      fs.writeFileSync(path.join(root, output, `${channel}-linux.yml`), metadata)
     console.log(`Linux packages: ${path.join(root, output)}`)
   } finally {
     if (fs.existsSync(configPath)) fs.unlinkSync(configPath)

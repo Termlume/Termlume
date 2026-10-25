@@ -54,6 +54,7 @@
           'libuuid1',
           'libsecret-1-0',
           'fuse3',
+            'pkexec',
         ],
     },
   'nsis':
