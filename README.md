@@ -79,7 +79,7 @@
 | Платформа | Установка | Обновления |
 | :--- | :--- | :--- |
 | **Windows 10/11 x64** | Установщик `Termlume-Setup-…-x64.exe` из [последнего выпуска](https://github.com/Termlume/Termlume/releases/latest). | Проверка каждый час, загрузка и установка из приложения. |
-| **Linux x86_64** | [DEB 0.2.3](https://github.com/Termlume/Termlume/releases/download/v0.2.3/Termlume-0.2.3-linux-amd64.deb). Проверен в Ubuntu 24.04 с GNOME/Wayland. | Пока вручную: новый DEB устанавливается поверх предыдущего. |
+| **Linux x86_64** | [DEB 0.2.3](https://github.com/Termlume/Termlume/releases/download/v0.2.3/Termlume-0.2.3-linux-amd64.deb). Проверен в Ubuntu 24.04 с GNOME/Wayland. | Проверка каждый час, загрузка и установка из приложения. Для DEB потребуется системное подтверждение прав администратора. |
 
 Для Linux установите скачанный пакет с зависимостями:
 
