@@ -54,7 +54,7 @@
     "vitest": "5.0.5"
   },
   "author": "Termlume",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/Termlume/Termlume.git"

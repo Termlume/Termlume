@@ -69,6 +69,8 @@
     },
   'extraResources':
     [
+      { 'from': 'LICENSE', 'to': 'LICENSE.txt' },
+      { 'from': 'NOTICE', 'to': 'NOTICE.txt' },
       { 'from': 'build/THIRD_PARTY_NOTICES.txt', 'to': 'THIRD_PARTY_NOTICES.txt' },
       { 'from': 'build/licenses', 'to': 'licenses' },
     ],

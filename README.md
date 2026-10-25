@@ -12,6 +12,7 @@
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" alt="Windows 10 и 11" />
     <img src="https://img.shields.io/badge/Linux-x86__64-E95420?style=flat-square" alt="Linux x86_64" />
     <img src="https://img.shields.io/badge/status-beta-e6b450?style=flat-square" alt="Бета-версия" />
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-7354b5?style=flat-square" alt="GPL-3.0-or-later" /></a>
   </p>
 
   <p>
@@ -173,4 +174,10 @@ sudo apt install ./Termlume-0.2.3-linux-amd64.deb
 
 ---
 
-<sub>Права на Termlume сохраняются за авторами; открытая лицензия на исходники пока не объявлена. Лицензии сторонних компонентов поставляются с приложением в `THIRD_PARTY_NOTICES.txt` и каталоге `licenses`.</sub>
+## Лицензия
+
+Termlume распространяется под **GNU General Public License версии 3 или любой более поздней версии** (`GPL-3.0-or-later`). Полный текст — в [LICENSE](LICENSE), уведомление об условиях — в [NOTICE](NOTICE).
+
+Программа предоставляется **без гарантий**, включая гарантии пригодности для конкретной цели. Ограничения гарантий и ответственности действуют в пределах применимого закона; подробности приведены в разделах 15–17 лицензии.
+
+Права на Termlume сохраняются за авторами. Сторонние компоненты распространяются на условиях собственных лицензий; их тексты поставляются с приложением в `THIRD_PARTY_NOTICES.txt` и каталоге `licenses`.
