@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { FileList } from '../../src/renderer/src/features/sftp/FileList'
 
 afterEach(cleanup)
@@ -173,5 +173,98 @@ it('moves an internal file into a folder only for its owning browser', () => {
     name: 'source',
   })
   fireEvent.drop(screen.getByText('target').closest('tr')!, { dataTransfer })
+  expect(move).toHaveBeenCalledTimes(1)
+})
+
+it('starts native Linux drag only on an actual gesture and leaves hover/selection inert', async () => {
+  const entry = {
+    name: 'logs',
+    type: 'directory' as const,
+    size: 0,
+    modifiedAt: 1,
+    isSymlink: false,
+  }
+  const native = vi.fn(async () => '/tmp/export/logs')
+  render(
+    <FileList
+      entries={[entry]}
+      selected={[]}
+      onSelect={() => {}}
+      onOpen={() => {}}
+      onParent={() => {}}
+      dragOwner="linux-owner"
+      nativeDrag
+      onBeginExternalDrag={native}
+    />,
+  )
+  const row = screen.getByText('logs').closest('tr')!
+  fireEvent.mouseEnter(row)
+  fireEvent.click(row)
+  expect(native).not.toHaveBeenCalled()
+  const allowed = fireEvent.dragStart(row, {
+    dataTransfer: { effectAllowed: '', setData: vi.fn() },
+  })
+  expect(allowed).toBe(false)
+  expect(native).toHaveBeenCalledTimes(1)
+  expect(native).toHaveBeenCalledWith(entry)
+})
+
+it('resolves a native drop back to the remote source and lets unrelated files reach the upload handler', async () => {
+  const source = {
+      name: 'source',
+      type: 'file' as const,
+      size: 1,
+      modifiedAt: 1,
+      isSymlink: false,
+    },
+    target = {
+      name: 'target',
+      type: 'directory' as const,
+      size: 0,
+      modifiedAt: 1,
+      isSymlink: false,
+    }
+  const move = vi.fn(),
+    getPathForFile = vi.fn(() => '/tmp/export/source')
+  Object.defineProperty(window, 'terminalApi', {
+    configurable: true,
+    value: { files: { getPathForFile } },
+  })
+  render(
+    <FileList
+      entries={[source, target]}
+      selected={[]}
+      onSelect={() => {}}
+      onOpen={() => {}}
+      onParent={() => {}}
+      dragOwner="linux-owner"
+      nativeDrag
+      onBeginExternalDrag={async () => '/tmp/export/source'}
+      onMove={move}
+    />,
+  )
+  fireEvent.dragStart(screen.getByText('source').closest('tr')!, {
+    dataTransfer: { effectAllowed: '', setData: vi.fn() },
+  })
+  await waitFor(() => expect(getPathForFile).not.toHaveBeenCalled())
+  const payload = {
+    types: ['Files'],
+    dropEffect: 'none',
+    files: [new File(['a'], 'source')],
+    getData: () => '',
+  }
+  fireEvent.dragOver(screen.getByText('target').closest('tr')!, { dataTransfer: payload })
+  expect(payload.dropEffect).toBe('copy')
+  fireEvent.drop(screen.getByText('target').closest('tr')!, { dataTransfer: payload })
+  expect(move).toHaveBeenCalledWith('source', expect.objectContaining({ name: 'target' }))
+  fireEvent.dragStart(screen.getByText('source').closest('tr')!, {
+    dataTransfer: { effectAllowed: '', setData: vi.fn() },
+  })
+  await Promise.resolve()
+  await Promise.resolve()
+  getPathForFile.mockReturnValue('/home/user/unrelated.txt')
+  expect(fireEvent.drop(screen.getByText('target').closest('tr')!, { dataTransfer: payload })).toBe(
+    true,
+  )
   expect(move).toHaveBeenCalledTimes(1)
 })

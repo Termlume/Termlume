@@ -44,14 +44,18 @@ async function createWindow(): Promise<void> {
     minWidth: 900,
     minHeight: 600,
     title: 'Termlume',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: initialTheme.colors.panel,
-      symbolColor: initialTheme.colors.text,
-      height: 32,
-    },
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: {
+            color: initialTheme.colors.panel,
+            symbolColor: initialTheme.colors.text,
+            height: 32,
+          },
+          backgroundMaterial: 'mica' as const,
+        }
+      : {}),
     backgroundColor: initialTheme.colors.bg,
-    backgroundMaterial: 'mica',
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -263,10 +267,12 @@ async function createWindow(): Promise<void> {
   win.once('ready-to-show', () => win.show())
   if (dev) await win.loadURL(dev)
   else await win.loadFile(join(__dirname, '../renderer/index.html'))
+  // Wayland may defer the first paint until a hidden surface is mapped.
+  if (process.platform === 'linux' && !win.isDestroyed()) win.show()
   updates.scheduleChecks()
 }
 app.whenReady().then(() => {
-  app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID)
+  if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID)
   return createWindow()
 })
 app.on('window-all-closed', () => {

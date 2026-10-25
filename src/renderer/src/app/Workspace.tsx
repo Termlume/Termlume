@@ -32,16 +32,18 @@ export function Workspace({ onNew, onWsl }: { onNew: () => void; onWsl: () => vo
             </span>
             <ArrowUpRight size={18} />
           </button>
-          <button className="start-card" onClick={onWsl}>
-            <span className="card-icon local">
-              <Monitor size={21} />
-            </span>
-            <span>
-              <strong>{ru.wslCard}</strong>
-              <small>{ru.wslHint}</small>
-            </span>
-            <ArrowUpRight size={18} />
-          </button>
+          {window.terminalApi.platform !== 'linux' && (
+            <button className="start-card" onClick={onWsl}>
+              <span className="card-icon local">
+                <Monitor size={21} />
+              </span>
+              <span>
+                <strong>{ru.wslCard}</strong>
+                <small>{ru.wslHint}</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+          )}
         </div>
         <button className="welcome-link" onClick={onNew}>
           Создать первое подключение

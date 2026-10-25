@@ -1,3 +1,4 @@
+import { normalizeLocalShell, localShellLabels } from '../../../../shared/local-shells'
 import { useEffect, useRef, useState } from 'react'
 import type {
   HostProfile,
@@ -97,12 +98,13 @@ export function useSessions(onError: (message: string) => void) {
     setActive(id)
   }
   async function openLocal(shell: LocalShellProfile['shell']) {
+    shell = normalizeLocalShell(shell, window.terminalApi.platform)
     try {
       const id = await window.terminalApi.sessions.openLocal(shell)
       addTab(id, {
         protocol: 'local',
         shell,
-        name: shell === 'powershell' ? 'PowerShell' : 'Command Prompt',
+        name: localShellLabels[shell],
       })
     } catch (error) {
       onError(String(error))

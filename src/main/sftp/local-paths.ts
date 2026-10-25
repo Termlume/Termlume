@@ -1,14 +1,16 @@
 import { resolve, relative, isAbsolute, dirname, join } from 'node:path'
 import { realpath, lstat } from 'node:fs/promises'
 import { AppError } from '../../shared/errors'
-export function validateFileName(name: string): string {
+export function validateFileName(name: string, platform: string = process.platform): string {
   if (
     !name ||
     name === '.' ||
     name === '..' ||
-    /[\\/:\x00-\x1f]/.test(name) ||
-    /[. ]$/.test(name) ||
-    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(name)
+    /[/\x00-\x1f]/.test(name) ||
+    (platform === 'win32' &&
+      (/[\\:]/.test(name) ||
+        /[. ]$/.test(name) ||
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(name)))
   )
     throw new AppError('unsafe-name', 'Недопустимое имя файла')
   return name

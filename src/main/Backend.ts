@@ -4,10 +4,14 @@ import { createReadStream } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import { app, BrowserWindow, dialog, shell, screen } from 'electron'
 import { LocalFilesService } from './sftp/LocalFilesService'
+import { sshKeyPickerDirectory } from './ssh/key-paths'
 import { SftpService } from './sftp/SftpService'
 import { ScpService } from './sftp/ScpService'
 import { RemoteFileAccess } from './sftp/RemoteFileAccess'
 import { ExternalDragService } from './sftp/ExternalDragService'
+import { LinuxDragService } from './sftp/LinuxDragService'
+import { LazyDragTree } from './sftp/LazyDragTree'
+import { RemoteDragProvider } from './sftp/RemoteDragProvider'
 import { WindowsDropTransfer } from './sftp/WindowsDropTransfer'
 import { RemoteEditService } from './sftp/RemoteEditService'
 import { openFile } from './sftp/FileOpener'
@@ -33,8 +37,9 @@ import {
   encodePortableBackup,
   type PortableData,
 } from './storage/portable-backup'
-import { windowsSecrets } from './platform/windows-secrets'
+import { systemSecrets } from './platform/system-secrets'
 import type { Request } from '../shared/schemas'
+import { localShellLabels, normalizeLocalShell } from '../shared/local-shells'
 import { AppError } from '../shared/errors'
 import { SessionManager } from './sessions/SessionManager'
 import { SessionJournal } from './logs/SessionJournal'
@@ -42,6 +47,7 @@ import { WslAdapter } from './sessions/WslAdapter'
 import { FtpAdapter } from './sessions/FtpAdapter'
 import { FtpFileAccess } from './sftp/FtpFileAccess'
 import { SshAdapter } from './sessions/SshAdapter'
+import { SystemX11Server } from './x11/SystemX11Server'
 import { X11Server } from './x11/X11Server'
 import { SshChallenges } from './sessions/SshChallenges'
 import { TelnetAdapter } from './sessions/TelnetAdapter'
@@ -70,14 +76,26 @@ export class Backend {
   readonly journal: SessionJournal
   readonly temporarySecrets = new Map<string, string | undefined>()
   readonly challenges = new SshChallenges()
-  readonly x11 = new X11Server(
-    app.isPackaged
-      ? join(process.resourcesPath, 'x11', 'vcxsrv.exe')
-      : join(app.getAppPath(), 'build', 'x11', 'vcxsrv.exe'),
-  )
+  readonly x11 =
+    process.platform === 'linux'
+      ? new SystemX11Server()
+      : new X11Server(
+          app.isPackaged
+            ? join(process.resourcesPath, 'x11', 'vcxsrv.exe')
+            : join(app.getAppPath(), 'build', 'x11', 'vcxsrv.exe'),
+        )
   readonly sftp: SftpService
   readonly remoteFiles: RemoteFileAccess
   readonly externalDrag: ExternalDragService
+  private readonly linuxDrag =
+    process.platform === 'linux'
+      ? new LinuxDragService(
+          app.isPackaged
+            ? join(process.resourcesPath, 'native', 'termlume-file-drag')
+            : join(app.getAppPath(), 'native/linux-drag/bin/termlume-file-drag'),
+          join(app.getPath('temp'), 'termlume-drag-' + process.pid),
+        )
+      : undefined
   private readonly nativeDrag = new WindowsDropTransfer(
     app.isPackaged
       ? join(process.resourcesPath, 'native', 'Termlume.FileDrag.exe')
@@ -109,12 +127,12 @@ export class Backend {
     confirmClose: (summary: CloseSummary) => Promise<boolean> = async () => false,
     private readonly fileActivity: (activity: FileActivity) => void = () => {},
   ) {
-    void this.nativeDrag.ready().catch(() => {})
+    if (process.platform === 'win32') void this.nativeDrag.ready().catch(() => {})
     this.hosts = new HostRepository(join(root, 'hosts.json'))
     this.settings = new SettingsRepository(join(root, 'settings.json'))
     this.knownHosts = new KnownHostsRepository(join(root, 'known-hosts.json'))
     this.identities = new IdentityRepository(join(root, 'identities.json'))
-    this.vault = new SecretVault(join(root, 'secrets.json'), windowsSecrets)
+    this.vault = new SecretVault(join(root, 'secrets.json'), systemSecrets)
     this.journal = new SessionJournal(root, (message) => this.notice(message))
     this.sessions = new SessionManager(
       async (profile, id) => {
@@ -173,7 +191,7 @@ export class Backend {
                       } as import('../shared/contracts').HostProfile)
                 } catch {
                   this.notice(
-                    'Не удалось сохранить секрет с защитой Windows. Введите его снова при следующем подключении.',
+                    'Не удалось сохранить секрет в защищённом системном хранилище. Введите его снова при следующем подключении.',
                   )
                 }
               }
@@ -235,6 +253,7 @@ export class Backend {
           this.sessionUsernames.delete(event.sessionId)
           this.monitoring?.closeSession(event.sessionId)
           void this.transfers?.closeSession(event.sessionId)
+          void this.linuxDrag?.closeSession(event.sessionId)
           void this.sftp?.close(event.sessionId)
           this.remoteFiles?.close(event.sessionId)
           void this.remoteEdits?.closeSession(event.sessionId).catch(() => {})
@@ -499,6 +518,75 @@ export class Backend {
   }
   async beginExternalDrag(request: FileDragRequest, sender: Electron.WebContents) {
     this.ensureActive()
+    if (process.platform === 'linux') {
+      const profile = this.requireFileSession(request.sessionId)
+      let path: string
+      if (request.phase === 'start' && profile.protocol !== 'local') {
+        if (!request.token || !this.linuxDrag?.owns(request.sessionId, request.token))
+          throw new AppError('drag-expired', 'Перенос завершён. Перетащите файл ещё раз.')
+        path = request.token
+      } else if (profile.protocol === 'local')
+        path = await ensureLocalPath(this.localFiles.root, request.path)
+      else {
+        if (!this.linuxDrag?.available())
+          throw new AppError('drag-unavailable', 'Для переноса нужен FUSE3 (пакет fuse3)')
+        const original = await this.remoteFiles.lstat(request.sessionId, request.path)
+        if (
+          !original ||
+          original.isSymbolicLink() ||
+          (!original.isFile() && !original.isDirectory())
+        )
+          throw new AppError(
+            'unsafe-link',
+            'Перенос поддерживает обычные файлы и папки без символических ссылок',
+          )
+        const canonical = await this.remoteFiles.realpath(request.sessionId, request.path)
+        let rangeReader: SftpService | undefined
+        if (profile.protocol !== 'ftp') {
+          try {
+            await this.sftp.get(request.sessionId)
+            rangeReader = this.sftp
+          } catch (error) {
+            if ((error as AppError).code !== 'sftp-unsupported') throw error
+          }
+        }
+        const provider = new RemoteDragProvider(
+          request.sessionId,
+          this.remoteFiles,
+          rangeReader,
+          join(app.getPath('temp'), 'termlume-drag-' + process.pid, 'cache'),
+        )
+        const tree = new LazyDragTree(
+          canonical,
+          {
+            directory: original.isDirectory(),
+            size: original.size,
+            modifiedAt: original.mtime * 1000,
+          },
+          provider,
+        )
+        try {
+          path = await this.linuxDrag.prepare(request.sessionId, tree)
+        } catch (error) {
+          await tree.close()
+          throw error
+        }
+      }
+      if (request.phase === 'prepare') return path
+      if (sender.isDestroyed()) return false
+      sender.startDrag({
+        file: path,
+        icon: app.isPackaged
+          ? join(process.resourcesPath, 'drag-icon.png')
+          : join(app.getAppPath(), 'build/icon.png'),
+      })
+      return path
+    }
+    if (process.platform !== 'win32')
+      throw new AppError(
+        'drag-unavailable',
+        'Перенос из сервера в файловый менеджер Linux пока недоступен. Используйте «Скачать в…».',
+      )
     const profile = this.requireFileSession(request.sessionId)
     const name = validateFileName(
       isRemoteFileProtocol(profile.protocol)
@@ -797,7 +885,10 @@ export class Backend {
           source,
           target:
             profile.protocol === 'wsl' || profile.protocol === 'local'
-              ? win32.join(remoteDirectory, validateFileName(basename(source)))
+              ? (process.platform === 'win32' ? win32.join : join)(
+                  remoteDirectory,
+                  validateFileName(basename(source)),
+                )
               : posix.join(remoteDirectory, validateFileName(basename(source))),
           overwrite: false,
           localRoot,
@@ -855,10 +946,24 @@ export class Backend {
           )
           return {
             ...result,
-            capabilities: { ...result.capabilities, upload: true, download: true, dragOut: true },
+            capabilities: {
+              ...result.capabilities,
+              upload: true,
+              download: true,
+              dragOut: process.platform === 'win32' || process.platform === 'linux',
+            },
           }
         }
-        return this.remoteFiles.list(request.sessionId, request.path)
+        const listing = await this.remoteFiles.list(request.sessionId, request.path)
+        return {
+          ...listing,
+          capabilities: {
+            ...listing.capabilities,
+            dragOut:
+              (process.platform === 'win32' || !!this.linuxDrag?.available()) &&
+              listing.capabilities.dragOut,
+          },
+        }
       }
       case 'files.move': {
         if (request.side === 'local') return this.localFiles.move(request.path, request.destination)
@@ -905,7 +1010,7 @@ export class Backend {
       case 'sessions.answer':
         return this.challenges.answer(this.ownerId, request.challengeId, request.answer)
       case 'wsl.list':
-        return listWslDistributions()
+        return process.platform === 'win32' ? listWslDistributions() : []
       case 'x11.status':
         return this.x11.status()
       case 'x11.start':
@@ -915,9 +1020,11 @@ export class Backend {
         await this.x11.stop()
         return this.x11.status()
       case 'wsl.inventory':
-        return listWslInventory()
+        return process.platform === 'win32' ? listWslInventory() : []
       case 'identity.chooseKey': {
         const result = await dialog.showOpenDialog({
+          title: 'Выберите приватный SSH-ключ',
+          defaultPath: await sshKeyPickerDirectory(),
           properties: ['openFile'],
           filters: [{ name: 'SSH private key', extensions: ['*'] }],
         })
@@ -1009,8 +1116,8 @@ export class Backend {
       case 'sessions.openLocal': {
         const profile = {
           protocol: 'local' as const,
-          shell: request.shell,
-          name: request.shell === 'powershell' ? 'PowerShell' : 'Command Prompt',
+          shell: normalizeLocalShell(request.shell, process.platform),
+          name: localShellLabels[normalizeLocalShell(request.shell, process.platform)],
         }
         return this.sessions.open(this.ownerId, profile)
       }
@@ -1281,6 +1388,7 @@ export class Backend {
     this.closePromise = (async () => {
       await Promise.all([
         this.nativeDrag.close(),
+        this.linuxDrag?.close(),
         this.externalDrag.close(),
         this.remoteEdits.close(),
       ])

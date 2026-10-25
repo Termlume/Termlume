@@ -8,7 +8,10 @@ export function registerApi(
   win: BrowserWindow,
   handle: (request: Request) => unknown,
   expectedUrl: string,
-  beginExternalDrag?: (request: FileDragRequest, sender: Electron.WebContents) => Promise<boolean>,
+  beginExternalDrag?: (
+    request: FileDragRequest,
+    sender: Electron.WebContents,
+  ) => Promise<boolean | string>,
   setTheme?: (themeId: import('../../shared/contracts').ThemeId) => void,
 ): () => void {
   const channel = 'terminal:request'

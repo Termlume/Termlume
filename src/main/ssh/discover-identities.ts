@@ -1,21 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createAgent, utils, type BaseAgent, type ParsedKey } from 'ssh2'
 import type { SshIdentity } from '../../shared/contracts'
 import { parseOpenSshConfig } from './OpenSshConfig'
+import { expandSshKeyPath } from './key-paths'
 
 export interface DiscoverOptions {
   home?: string
   platform?: NodeJS.Platform
   env?: NodeJS.ProcessEnv
   agentFactory?: (endpoint: string) => BaseAgent
-}
-
-function expandIdentityPath(value: string, home: string) {
-  const expanded = value.startsWith('~/') ? join(home, value.slice(2)) : value
-  return resolve(expanded.replace(/%d/gi, home))
 }
 
 function agentEndpoints(platform: NodeJS.Platform, env: NodeJS.ProcessEnv) {
@@ -77,7 +73,7 @@ export async function discoverSshIdentities(options: DiscoverOptions = {}): Prom
     identities: SshIdentity[] = [],
     paths = new Set<string>()
   const addKey = async (path: string, label?: string) => {
-    const expanded = expandIdentityPath(path, home)
+    const expanded = expandSshKeyPath(path, home)
     if (paths.has(expanded)) return
     try {
       if (!(await stat(expanded)).isFile()) return

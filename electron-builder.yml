@@ -11,7 +11,51 @@
   'publish':
     [{ 'provider': 'github', 'owner': 'Termlume', 'repo': 'Termlume', 'releaseType': 'release' }],
   'generateUpdatesFilesForAllChannels': true,
-  'win': { 'target': [{ 'target': 'nsis', 'arch': ['x64'] }], 'icon': 'build/icon.ico' },
+  'win':
+    {
+      'target': [{ 'target': 'nsis', 'arch': ['x64'] }],
+      'icon': 'build/icon.ico',
+      'extraResources':
+        [
+          { 'from': 'build/x11', 'to': 'x11' },
+          { 'from': 'build/x11-source', 'to': 'x11-source' },
+          { 'from': 'build/icon.ico', 'to': 'drag-icon.ico' },
+          {
+            'from': 'native/windows-drag/bin/Termlume.FileDrag.exe',
+            'to': 'native/Termlume.FileDrag.exe',
+          },
+        ],
+    },
+  'linux':
+    {
+      'target': [{ 'target': 'AppImage', 'arch': ['x64'] }, { 'target': 'deb', 'arch': ['x64'] }],
+      'icon': 'build/icon.png',
+      'category': 'System',
+      'syncDesktopName': true,
+      'extraResources':
+        [
+          { 'from': 'native/linux-drag/bin', 'to': 'native' },
+          { 'from': 'build/icon.png', 'to': 'drag-icon.png' },
+        ],
+      'maintainer': 'Termlume',
+      'artifactName': 'Termlume-${version}-linux-${arch}.${ext}',
+    },
+  'deb':
+    {
+      'depends':
+        [
+          'libgtk-3-0',
+          'libnotify4',
+          'libnss3',
+          'libxss1',
+          'libxtst6',
+          'xdg-utils',
+          'libatspi2.0-0',
+          'libuuid1',
+          'libsecret-1-0',
+          'fuse3',
+        ],
+    },
   'nsis':
     {
       'oneClick': false,
@@ -26,12 +70,5 @@
     [
       { 'from': 'build/THIRD_PARTY_NOTICES.txt', 'to': 'THIRD_PARTY_NOTICES.txt' },
       { 'from': 'build/licenses', 'to': 'licenses' },
-      { 'from': 'build/x11', 'to': 'x11' },
-      { 'from': 'build/x11-source', 'to': 'x11-source' },
-      { 'from': 'build/icon.ico', 'to': 'drag-icon.ico' },
-      {
-        'from': 'native/windows-drag/bin/Termlume.FileDrag.exe',
-        'to': 'native/Termlume.FileDrag.exe',
-      },
     ],
 }

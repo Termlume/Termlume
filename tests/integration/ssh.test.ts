@@ -1,7 +1,7 @@
 import { it, expect, vi } from 'vitest'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { tmpdir, homedir } from 'node:os'
+import { join, basename } from 'node:path'
 import { utils } from 'ssh2'
 import { generateKeyPairSync } from 'node:crypto'
 import { SshAdapter } from '../../src/main/sessions/SshAdapter'
@@ -22,6 +22,101 @@ const base: Extract<HostProfile, { protocol: 'ssh' }> = {
   group: '',
   monitoringEnabled: false,
 }
+it('uses a home-relative private key from a shared credential for SSH and SFTP and rejects a public key', async () => {
+  const root = await mkdtemp(join(homedir(), '.termlume-key-test-'))
+  const key = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  })
+  const parsed = utils.parseKey(key.privateKey)
+  if (parsed instanceof Error) throw parsed
+  const fixture = await sshFixture({ publicKey: parsed.getPublicSSH(), username: 'shared-user' })
+  const ctx = await context(fixture.port)
+  await writeFile(join(root, 'company key'), key.privateKey)
+  await writeFile(
+    join(root, 'company key.pub'),
+    parsed.type + ' ' + parsed.getPublicSSH().toString('base64'),
+  )
+  try {
+    for (const protocol of ['ssh', 'sftp'] as const) {
+      const adapter = new SshAdapter(
+        { ...ctx.profile, protocol, auth: 'key', username: 'wrong', keyPath: '/missing' },
+        {
+          knownHosts: ctx.known,
+          vault: ctx.vault,
+          challenges: ctx.challenges,
+          ownerId: 1,
+          sessionId: protocol,
+          identity: {
+            id: 'shared',
+            name: 'Company',
+            method: 'key',
+            username: 'shared-user',
+            keyPath: `~/${basename(root)}/company key`,
+          },
+        },
+      )
+      adapter.subscribe((event) => {
+        if (event.type === 'challenge')
+          ctx.challenges.answer(1, event.challenge.id, {
+            kind: 'trust',
+            accept: true,
+            replaceExisting: false,
+          })
+      })
+      try {
+        await adapter.connect(new AbortController().signal)
+        expect(adapter.getClient()).toBeDefined()
+      } finally {
+        await adapter.close()
+      }
+    }
+    const adapter = new SshAdapter(
+      { ...ctx.profile, auth: 'key', keyPath: join(root, 'company key.pub') },
+      {
+        knownHosts: ctx.known,
+        vault: ctx.vault,
+        challenges: ctx.challenges,
+        ownerId: 1,
+        sessionId: 'public',
+      },
+    )
+    await expect(adapter.connect(new AbortController().signal)).rejects.toThrow('публичный ключ')
+    await adapter.close()
+    const rejectedKey = new SshAdapter(
+      { ...ctx.profile, username: 'wrong-user', auth: 'key', keyPath: join(root, 'company key') },
+      {
+        knownHosts: ctx.known,
+        vault: ctx.vault,
+        challenges: ctx.challenges,
+        ownerId: 1,
+        sessionId: 'rejected-key',
+      },
+    )
+    let authPrompts = 0
+    rejectedKey.subscribe((event) => {
+      if (event.type === 'challenge' && event.challenge.kind === 'auth') {
+        authPrompts++
+        ctx.challenges.answer(1, event.challenge.id, {
+          kind: 'auth',
+          passphrase: 'irrelevant',
+          remember: false,
+        })
+      }
+    })
+    try {
+      await expect(rejectedKey.connect(new AbortController().signal)).rejects.toThrow()
+      expect(authPrompts).toBe(0)
+    } finally {
+      await rejectedKey.close()
+    }
+  } finally {
+    await fixture.close()
+    await ctx.cleanup()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 async function context(port: number) {
   const root = await mkdtemp(join(tmpdir(), 'terminal-ssh-')),
     known = new KnownHostsRepository(join(root, 'known.json')),

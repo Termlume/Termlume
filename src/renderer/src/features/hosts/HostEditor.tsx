@@ -269,7 +269,7 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
               <option value="sftp">SFTP — файловый клиент</option>
               <option value="ftp">FTP / FTPS — файловый клиент</option>
               <option value="telnet">Telnet</option>
-              <option value="wsl">WSL</option>
+              {window.terminalApi.platform !== 'linux' && <option value="wsl">WSL</option>}
             </select>
           </label>
         </div>
@@ -400,7 +400,11 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
                     disabled={!!identityId}
                     value={keyPath}
                     onChange={(event) => setKeyPath(event.target.value)}
-                    placeholder="C:\\Users\\...\\.ssh\\id_ed25519"
+                    placeholder={
+                      window.terminalApi.platform === 'linux'
+                        ? '~/.ssh/id_ed25519'
+                        : 'C:\\Users\\...\\.ssh\\id_ed25519'
+                    }
                   />
                   <button
                     type="button"
@@ -447,8 +451,8 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
                 <Info size={14} aria-hidden="true" />
               </summary>
               <p>
-                Окна приложений с сервера появятся в Windows. На сервере нужны xauth и X11Forwarding
-                yes. Включайте для доверенных серверов.
+                Окна приложений с сервера появятся на этом компьютере. На сервере нужны xauth и
+                X11Forwarding yes. Включайте для доверенных серверов.
               </p>
             </details>
           </div>
@@ -496,8 +500,8 @@ export function HostEditor({ profile, onSave, onClose, quick = false, initialPro
             )}
             {!quick && (
               <p className="muted">
-                Пароль будет запрошен при подключении и сохранён с защитой Windows после успешного
-                входа.
+                Пароль будет запрошен при подключении и сохранён в системном хранилище секретов
+                после успешного входа.
               </p>
             )}
           </>

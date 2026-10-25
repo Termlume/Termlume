@@ -4,6 +4,7 @@ import { rewriteX11Setup } from './auth'
 
 export interface X11Endpoint {
   port: number
+  socketPath?: string
   cookie: Buffer
 }
 
@@ -53,7 +54,11 @@ export function attachX11Bridge(
         channel.pause()
         channel.removeListener('data', setup)
         clearTimeout(timer)
-        socket = connect({ host: '127.0.0.1', port: endpoint.port })
+        socket = connect(
+          endpoint.socketPath
+            ? { path: endpoint.socketPath }
+            : { host: '127.0.0.1', port: endpoint.port },
+        )
         socket.setTimeout(10000, () => fail('X11: локальный X-сервер не ответил.'))
         socket.once('connect', () => {
           socket!.setTimeout(0)

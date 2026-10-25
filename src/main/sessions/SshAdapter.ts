@@ -10,6 +10,7 @@ import type { KnownHostsRepository } from '../storage/KnownHostsRepository'
 import { fingerprint } from '../storage/KnownHostsRepository'
 import type { SecretVault } from '../storage/SecretVault'
 import type { SshChallenges } from './SshChallenges'
+import { expandSshKeyPath } from '../ssh/key-paths'
 
 interface Options {
   knownHosts: KnownHostsRepository
@@ -117,9 +118,27 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
     const keyPath = identity?.keyPath || this.profile.keyPath
     if (method === 'key') {
       if (!keyPath) throw new AppError('key-missing', 'Укажите приватный ключ')
-      if ((await stat(keyPath)).size > 1048576)
-        throw new AppError('key-too-large', 'Файл ключа слишком большой')
-      key = await readFile(keyPath)
+      const resolvedKeyPath = expandSshKeyPath(keyPath)
+      let keyStat
+      try {
+        keyStat = await stat(resolvedKeyPath)
+      } catch {
+        throw new AppError(
+          'key-unavailable',
+          'Приватный ключ не найден или недоступен. Проверьте путь к файлу.',
+        )
+      }
+      if (!keyStat.isFile())
+        throw new AppError('invalid-key', 'Выберите файл приватного ключа, а не папку.')
+      if (keyStat.size > 1048576) throw new AppError('key-too-large', 'Файл ключа слишком большой')
+      try {
+        key = await readFile(resolvedKeyPath)
+      } catch {
+        throw new AppError(
+          'key-unavailable',
+          'Не удалось прочитать приватный ключ. Проверьте права доступа к файлу.',
+        )
+      }
       let parsed = utils.parseKey(key, secret)
       if (parsed instanceof Error && /encrypted|passphrase|decrypt/i.test(parsed.message)) {
         if (secret && storedSecret) {
@@ -134,6 +153,11 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
         throw new AppError(
           'invalid-key',
           'Не удалось прочитать ключ. Проверьте формат и passphrase.',
+        )
+      if (Array.isArray(parsed) || !parsed.isPrivateKey())
+        throw new AppError(
+          'invalid-key',
+          'Выбран публичный ключ. Укажите приватный ключ — файл без расширения .pub.',
         )
     }
 
@@ -161,17 +185,13 @@ export class SshAdapter extends EventAdapter implements SessionAdapter {
           await this.options.remember(secret)
         return
       } catch (error) {
-        if (!authenticationError(error) || attempt > 0 || method === 'agent') throw error
+        // A parsed private key is already unlocked; server rejection is not a passphrase error.
+        if (!authenticationError(error) || attempt > 0 || method !== 'password') throw error
         if (storedSecret) {
           await this.options.clearStoredSecret?.()
           storedSecret = false
         }
-        secret = await this.requestSecret(signal, method === 'key' ? 'key' : 'password')
-        if (method === 'key' && key) {
-          const parsed = utils.parseKey(key, secret)
-          if (parsed instanceof Error)
-            throw new AppError('invalid-key', 'Не удалось прочитать ключ. Проверьте passphrase.')
-        }
+        secret = await this.requestSecret(signal, 'password')
       }
     }
   }

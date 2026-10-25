@@ -19,6 +19,7 @@ export function terminalDirectoryPath(
       return value.replaceAll('/', '\\')
     return
   }
+  if (mode === 'local' && home.startsWith('/')) return value.startsWith('/') ? value : undefined
   if (mode === 'local')
     return /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i.test(value) && !/^\\\\[?.]\\/.test(value)
       ? value

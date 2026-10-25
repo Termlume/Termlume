@@ -14,10 +14,19 @@ test('SSH identities persist metadata, discover keys and use the native key pick
   try {
     const page = await app.firstWindow()
     await app.evaluate(({ dialog }, path) => {
-      dialog.showOpenDialog = (async () => ({
-        canceled: false,
-        filePaths: [path],
-      })) as typeof dialog.showOpenDialog
+      dialog.showOpenDialog = (async (options: { defaultPath?: string }) => {
+        const { homedir } = require('node:os')
+        const { join } = require('node:path')
+        const { existsSync } = require('node:fs')
+        const home = homedir(),
+          ssh = join(home, '.ssh')
+        if (options.defaultPath !== (existsSync(ssh) ? ssh : home))
+          throw Error('Wrong SSH key picker directory')
+        return {
+          canceled: false,
+          filePaths: [path],
+        }
+      }) as typeof dialog.showOpenDialog
     }, keyPath)
     const picked = await page.evaluate(() => window.terminalApi.identities.chooseKey())
     expect(picked).toBe(keyPath)

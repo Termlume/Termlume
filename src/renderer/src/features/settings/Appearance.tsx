@@ -1,3 +1,8 @@
+import {
+  normalizeLocalShell,
+  localShellOptions,
+  localShellLabels,
+} from '../../../../shared/local-shells'
 import { Credentials } from './Credentials'
 import { HighlightRulesEditor } from './HighlightRulesEditor'
 import { DEFAULT_HIGHLIGHT_RULES } from '../../../../shared/highlight-rules'
@@ -81,7 +86,7 @@ const sections = [
     id: 'x11',
     label: 'Графика X11',
     icon: TerminalSquare,
-    hint: 'Графические приложения SSH в окнах Windows.',
+    hint: 'Графические приложения SSH на этом компьютере.',
   },
   {
     id: 'highlighting',
@@ -159,7 +164,9 @@ export function Appearance({
     [size, setSize] = useState(settings.terminalFontSize),
     [sftpMode, setSftpMode] = useState(settings.sftpMode),
     [mouseAction, setMouseAction] = useState(settings.mouseAction),
-    [localShell, setLocalShell] = useState(settings.localShell),
+    [localShell, setLocalShell] = useState(
+      normalizeLocalShell(settings.localShell, window.terminalApi.platform),
+    ),
     [monitoringIntervalSeconds, setMonitoringIntervalSeconds] = useState(
       settings.monitoringIntervalSeconds ?? 3,
     ),
@@ -400,8 +407,11 @@ export function Appearance({
                       setLocalShell(event.target.value as Settings['localShell'])
                     }
                   >
-                    <option value="powershell">PowerShell</option>
-                    <option value="cmd">Командная строка (cmd)</option>
+                    {localShellOptions(window.terminalApi.platform).map((shell) => (
+                      <option key={shell} value={shell}>
+                        {shell === 'cmd' ? 'Командная строка (cmd)' : localShellLabels[shell]}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="setting-checkbox">

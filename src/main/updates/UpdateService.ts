@@ -40,8 +40,7 @@ export class UpdateService {
       channel: options.channel,
       ...(!options.enabled
         ? {
-            message:
-              'Автообновление доступно в установленной версии Windows. Установите Termlume через установщик.',
+            message: 'Автообновление недоступно в этой сборке. Установите новую версию вручную.',
           }
         : {}),
     }

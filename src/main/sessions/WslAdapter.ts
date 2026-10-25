@@ -14,6 +14,11 @@ export class WslAdapter extends EventAdapter implements SessionAdapter {
     super()
   }
   async connect(signal: AbortSignal) {
+    if (process.platform !== 'win32')
+      throw new AppError(
+        'platform-unavailable',
+        'WSL доступен только в Windows. Используйте локальную оболочку Linux.',
+      )
     const distributions = await listWslDistributions()
     if (signal.aborted) throw new Error('aborted')
     if (!distributions.includes(this.profile.distribution))

@@ -91,7 +91,7 @@ export interface TerminalApi {
     openRemote(sessionId: string, path: string, mode?: FileOpenMode): Promise<{ localPath: string }>
     enqueueDropped(paths: string[], sessionId: string, targetDirectory: string): Promise<string[]>
     stageDrag(sessionId: string, path: string): Promise<{ token: string; fileName: string }>
-    beginExternalDrag(request: FileDragRequest): Promise<boolean>
+    beginExternalDrag(request: FileDragRequest): Promise<boolean | string>
     getPathForFile(file: File): string
     onTransfer(listener: (entry: TransferSnapshot) => void): () => void
   }

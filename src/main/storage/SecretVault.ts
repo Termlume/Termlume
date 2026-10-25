@@ -36,7 +36,7 @@ export class SecretVault {
     if (Object.keys(values).length && !this.crypto.available())
       throw new AppError(
         'encryption-unavailable',
-        'Защита Windows недоступна. Импорт секретов отменён.',
+        'Защищённое системное хранилище недоступно. Импорт секретов отменён.',
       )
     return Object.fromEntries(
       Object.entries(values).map(([reference, value]) => [
@@ -61,7 +61,10 @@ export class SecretVault {
   }
   async set(ref: string, value: string): Promise<void> {
     if (!this.crypto.available())
-      throw new AppError('encryption-unavailable', 'Защита Windows недоступна. Секрет не сохранён.')
+      throw new AppError(
+        'encryption-unavailable',
+        'Защищённое системное хранилище недоступно. Секрет не сохранён.',
+      )
     const encrypted = this.crypto.encrypt(value).toString('base64')
     await this.store.update((data) => ({ ...data, [ref]: encrypted }))
   }

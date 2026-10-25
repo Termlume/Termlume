@@ -1,3 +1,4 @@
+if (process.platform !== 'win32') process.exit(0)
 // Extract upstream installers into the project. Never run an installer.
 const fs = require('node:fs/promises')
 const path = require('node:path')

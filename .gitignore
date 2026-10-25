@@ -16,3 +16,4 @@ native/windows-drag/bin/
 build/x11/
 build/x11-download/
 build/x11-source/
+native/linux-drag/bin/

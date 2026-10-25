@@ -2,6 +2,7 @@
   "name": "termlume",
   "version": "0.2.3",
   "private": true,
+  "desktopName": "termlume.desktop",
   "description": "SSH, SFTP, Telnet and WSL terminal for Windows",
   "main": "out/main/index.js",
   "scripts": {
@@ -13,6 +14,7 @@
     "test:e2e": "playwright test",
     "check:native": "node scripts/check-native.cjs",
     "dist:win": "node scripts/release-win.cjs",
+    "dist:linux": "node scripts/release-linux.cjs",
     "test:package": "node scripts/package-smoke.cjs",
     "format": "prettier --write src tests scripts electron.vite.config.ts vitest.config.mts playwright.config.ts tsconfig*.json",
     "build:native": "node scripts/build-native-drag.cjs && node scripts/prepare-x11.cjs",

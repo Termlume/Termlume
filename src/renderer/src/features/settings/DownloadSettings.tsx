@@ -19,9 +19,7 @@ export function DownloadSettings({
   return (
     <section className="settings-section">
       <h3>Скачивание файлов</h3>
-      <p className="muted small">
-        Папка назначения: {settings.downloadDirectory || 'Загрузки Windows'}
-      </p>
+      <p className="muted small">Папка назначения: {settings.downloadDirectory || 'Загрузки'}</p>
       <button
         className="secondary-button"
         onClick={async () => {

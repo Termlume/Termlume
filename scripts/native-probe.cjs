@@ -1,13 +1,16 @@
 const pty = require('node-pty')
 let seen = false
+const windows = process.platform === 'win32'
 const term = pty.spawn(
-  'powershell.exe',
-  [
-    '-NoLogo',
-    '-NoProfile',
-    '-Command',
-    '[Console]::WriteLine("PTY_READY"); Start-Sleep -Milliseconds 700',
-  ],
+  windows ? 'powershell.exe' : '/bin/sh',
+  windows
+    ? [
+        '-NoLogo',
+        '-NoProfile',
+        '-Command',
+        '[Console]::WriteLine("PTY_READY"); Start-Sleep -Milliseconds 700',
+      ]
+    : ['-c', 'printf \"PTY_READY\\n\"; sleep 1'],
   { cols: 80, rows: 24 },
 )
 const timer = setTimeout(() => {

@@ -8,6 +8,7 @@ export function FileList({
   onOpen,
   onParent,
   onBeginExternalDrag,
+  nativeDrag = false,
   dragOwner,
   onMove,
   showPermissions = true,
@@ -19,7 +20,8 @@ export function FileList({
   onSelect: (name: string, multiple: boolean) => void
   onOpen: (entry: FileEntry) => void
   onParent: () => void
-  onBeginExternalDrag?: (entry: FileEntry) => boolean | Promise<boolean>
+  onBeginExternalDrag?: (entry: FileEntry) => boolean | string | Promise<boolean | string>
+  nativeDrag?: boolean
   dragOwner?: string
   onMove?: (source: string, directory?: FileEntry) => void
   showPermissions?: boolean
@@ -27,9 +29,14 @@ export function FileList({
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void
 }) {
   const dragging = useRef<FileEntry | undefined>(undefined)
+  const nativeDragging = useRef<{ entry: FileEntry; path: string } | undefined>(undefined)
+  useEffect(() => {
+    nativeDragging.current = undefined
+  }, [dragOwner])
   const table = useRef<HTMLTableElement>(null)
   useEffect(() => {
     const leave = (event: DragEvent) => {
+      if (nativeDrag) return
       const entry = dragging.current
       if (!entry || !onBeginExternalDrag || entry.isSymlink || event.relatedTarget != null) return
       if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
@@ -55,16 +62,37 @@ export function FileList({
       document.removeEventListener('dragend', stop)
       document.removeEventListener('drop', stop)
     }
-  }, [onBeginExternalDrag])
+  }, [onBeginExternalDrag, nativeDrag])
   function accepts(event: React.DragEvent) {
-    return !!onMove && Array.from(event.dataTransfer.types).includes('application/x-termlume-file')
+    const types = Array.from(event.dataTransfer.types)
+    return (
+      !!onMove &&
+      (types.includes('application/x-termlume-file') ||
+        (!!nativeDragging.current && types.includes('Files')))
+    )
   }
   function drop(event: React.DragEvent, directory?: FileEntry) {
     if (!accepts(event)) return
+    const origin = nativeDragging.current
+    const nativeMatch =
+      origin &&
+      Array.from(event.dataTransfer.files || []).some(
+        (file) => window.terminalApi.files.getPathForFile(file) === origin.path,
+      )
+    if (
+      !nativeMatch &&
+      !Array.from(event.dataTransfer.types).includes('application/x-termlume-file')
+    )
+      return
     event.preventDefault()
     event.stopPropagation()
     dragging.current = undefined
     try {
+      if (origin && nativeMatch) {
+        nativeDragging.current = undefined
+        onMove?.(origin.entry.name, directory)
+        return
+      }
       const payload = JSON.parse(event.dataTransfer.getData('application/x-termlume-file'))
       if (
         payload.owner === dragOwner &&
@@ -246,6 +274,14 @@ export function FileList({
                   return
                 }
                 dragging.current = entry
+                if (nativeDrag && onBeginExternalDrag) {
+                  event.preventDefault()
+                  nativeDragging.current = undefined
+                  void Promise.resolve(onBeginExternalDrag(entry)).then((path) => {
+                    if (typeof path === 'string') nativeDragging.current = { entry, path }
+                  })
+                  return
+                }
                 event.dataTransfer.effectAllowed = 'copyMove'
                 event.dataTransfer.setData(
                   'application/x-termlume-file',
@@ -256,7 +292,11 @@ export function FileList({
                 if (entry.type === 'directory' && !entry.isSymlink && accepts(event)) {
                   event.preventDefault()
                   event.stopPropagation()
-                  event.dataTransfer.dropEffect = 'move'
+                  event.dataTransfer.dropEffect = Array.from(event.dataTransfer.types).includes(
+                    'Files',
+                  )
+                    ? 'copy'
+                    : 'move'
                 }
               }}
               onDrop={(event) => {

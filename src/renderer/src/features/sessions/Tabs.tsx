@@ -1,4 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import {
+  normalizeLocalShell,
+  localShellOptions,
+  localShellLabels,
+} from '../../../../shared/local-shells'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Plus, Home, TerminalSquare, FolderSync, Star, Monitor, ChevronDown } from 'lucide-react'
 import type { HostProfile, LocalShellProfile } from '../../../../shared/contracts'
@@ -24,7 +29,7 @@ export function Tabs({
   favorites = [],
   onOpenHost,
   onOpenLocal,
-  defaultLocalShell = 'powershell',
+  defaultLocalShell,
   shortcutBindings,
 }: {
   tabs: SessionTab[]
@@ -38,10 +43,38 @@ export function Tabs({
   defaultLocalShell?: LocalShellProfile['shell']
   shortcutBindings?: ShortcutBindings
 }) {
+  defaultLocalShell = normalizeLocalShell(
+    defaultLocalShell,
+    window.terminalApi?.platform ?? 'win32',
+  )
   const [menu, setMenu] = useState(false)
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menu) return
+    const dismissOutside = (event: Event) => {
+      const target = event.target as Node | null
+      if (target && !menuRef.current?.contains(target) && !triggerRef.current?.contains(target))
+        setMenu(false)
+    }
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setMenu(false)
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', dismissOutside, true)
+    document.addEventListener('focusin', dismissOutside)
+    document.addEventListener('keydown', dismissEscape, true)
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside, true)
+      document.removeEventListener('focusin', dismissOutside)
+      document.removeEventListener('keydown', dismissEscape, true)
+    }
+  }, [menu])
 
   useLayoutEffect(() => {
     if (!menu) return
@@ -128,26 +161,19 @@ export function Tabs({
                   {shortcutKeys('new-connection', shortcutBindings)}
                 </span>
               </div>
-              <button
-                role="menuitem"
-                onClick={() => {
-                  setMenu(false)
-                  onOpenLocal?.('powershell')
-                }}
-              >
-                <Monitor size={14} /> PowerShell
-                {defaultLocalShell === 'powershell' ? ' · по умолчанию' : ''}
-              </button>
-              <button
-                role="menuitem"
-                onClick={() => {
-                  setMenu(false)
-                  onOpenLocal?.('cmd')
-                }}
-              >
-                <TerminalSquare size={14} /> Command Prompt
-                {defaultLocalShell === 'cmd' ? ' · по умолчанию' : ''}
-              </button>
+              {localShellOptions(window.terminalApi?.platform ?? 'win32').map((shell) => (
+                <button
+                  key={shell}
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(false)
+                    onOpenLocal?.(shell)
+                  }}
+                >
+                  <Monitor size={14} /> {localShellLabels[shell]}
+                  {defaultLocalShell === shell ? ' · по умолчанию' : ''}
+                </button>
+              ))}
               {favorites.length > 0 && <div className="new-tab-menu-label">ИЗБРАННОЕ</div>}
               {favorites.map((host) => (
                 <button

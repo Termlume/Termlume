@@ -119,7 +119,8 @@ export function Shell({
         {footer || <span>{ru.disconnected}</span>}
         <span className="status-end">
           {updateIndicator}
-          WINDOWS <span className="status-separator">/</span> UTF-8
+          {window.terminalApi.platform === 'linux' ? 'LINUX' : 'WINDOWS'}{' '}
+          <span className="status-separator">/</span> UTF-8
         </span>
       </footer>
     </div>

@@ -36,6 +36,8 @@ export const fileDragSchema = z
       .refine((value) => !value.includes('\0')),
     size: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     modifiedAt: z.number().finite().min(0),
+    phase: z.enum(['prepare', 'start']).optional(),
+    token: z.string().min(1).max(4096).optional(),
   })
   .strict()
 const base = {
@@ -207,7 +209,7 @@ export const settingsSchema = z.object({
   mouseAction: z
     .enum(['select-copy-right-paste', 'context-menu', 'manual'])
     .default('select-copy-right-paste'),
-  localShell: z.enum(['powershell', 'cmd']).default('powershell'),
+  localShell: z.enum(['powershell', 'cmd', 'system', 'bash', 'zsh']).default('powershell'),
   smoothInput: z.boolean().default(false),
 })
 // Zod 4 applies defaults even inside partial() fields. IPC patches must contain
@@ -489,7 +491,10 @@ export const requestSchema = z.discriminatedUnion('action', [
     strategy: z.enum(['merge', 'replace']),
   }),
   z.object({ action: z.literal('sessions.open'), profileId: id }),
-  z.object({ action: z.literal('sessions.openLocal'), shell: z.enum(['powershell', 'cmd']) }),
+  z.object({
+    action: z.literal('sessions.openLocal'),
+    shell: z.enum(['powershell', 'cmd', 'system', 'bash', 'zsh']),
+  }),
   z.object({ action: z.literal('sessions.close'), id }),
   z.object({ action: z.literal('sessions.write'), id, data: z.string().max(1048576) }),
   z.object({

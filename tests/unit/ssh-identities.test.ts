@@ -18,6 +18,24 @@ async function temp() {
 }
 
 describe('SSH identities', () => {
+  it('uses only SSH_AUTH_SOCK for Linux agents and resolves config keys relative to home', async () => {
+    const home = await temp(),
+      ssh = join(home, '.ssh')
+    await mkdir(ssh)
+    await writeFile(join(ssh, 'company'), 'key')
+    await writeFile(join(ssh, 'config'), 'Host company\n IdentityFile .ssh/company\n')
+    const agentFactory = vi.fn(() => ({
+      getIdentities: (callback: (e: undefined, keys: never[]) => void) => callback(undefined, []),
+    }))
+    const identities = await discoverSshIdentities({
+      home,
+      platform: 'linux',
+      env: { SSH_AUTH_SOCK: '/run/user/1000/keyring/ssh' },
+      agentFactory: agentFactory as never,
+    })
+    expect(identities[0].keyPath).toBe(join(ssh, 'company'))
+    expect(agentFactory).toHaveBeenCalledExactlyOnceWith('/run/user/1000/keyring/ssh')
+  })
   it('preserves a shared login and arbitrary company name without storing plaintext fields', async () => {
     const root = await temp(),
       repository = new IdentityRepository(join(root, 'identities.json'))

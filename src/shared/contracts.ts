@@ -62,10 +62,12 @@ export type HostProfile = HostBase &
       }
     | { protocol: 'wsl'; distribution: string }
   )
+export type LocalShell = 'powershell' | 'cmd' | 'system' | 'bash' | 'zsh'
+
 export interface LocalShellProfile {
   protocol: 'local'
   name: string
-  shell: 'powershell' | 'cmd'
+  shell: LocalShell
 }
 export type SessionProfile = HostProfile | LocalShellProfile
 export interface SshIdentity {
@@ -237,6 +239,8 @@ export interface FileDragRequest {
   path: string
   size: number
   modifiedAt: number
+  phase?: 'prepare' | 'start'
+  token?: string
 }
 export interface FileMove extends FileLocation {
   destination: string
@@ -320,7 +324,7 @@ export interface Settings {
   windowBounds: { width: number; height: number }
   sftpMode: 'two-panel' | 'remote-only'
   mouseAction: 'select-copy-right-paste' | 'context-menu' | 'manual'
-  localShell: 'powershell' | 'cmd'
+  localShell: LocalShell
   smoothInput: boolean
 }
 

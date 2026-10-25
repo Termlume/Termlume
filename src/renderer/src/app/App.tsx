@@ -1,3 +1,4 @@
+import { normalizeLocalShell } from '../../../shared/local-shells'
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { X, Columns2 } from 'lucide-react'
@@ -153,7 +154,9 @@ export default function App() {
     } else if (action === 'new-connection') {
       setQuick(true)
     } else if (action === 'new-local') {
-      void sessions.openLocal(settings?.localShell || 'powershell')
+      void sessions.openLocal(
+        normalizeLocalShell(settings?.localShell, window.terminalApi.platform),
+      )
     } else if (typeof action === 'object') {
       setLayoutPreset((current) => ({
         revision: (current?.revision || 0) + 1,
@@ -251,15 +254,17 @@ export default function App() {
               favoriteOnly={favoriteOnly}
               onFavorite={() => setFavoriteOnly(!favoriteOnly)}
             >
-              <WslDefaultEntry
-                hosts={catalog.hosts}
-                search={search}
-                favoriteOnly={favoriteOnly}
-                onConnect={(profile) => {
-                  setMonitor(true)
-                  void sessions.open(profile, true)
-                }}
-              />
+              {window.terminalApi.platform !== 'linux' && (
+                <WslDefaultEntry
+                  hosts={catalog.hosts}
+                  search={search}
+                  favoriteOnly={favoriteOnly}
+                  onConnect={(profile) => {
+                    setMonitor(true)
+                    void sessions.open(profile, true)
+                  }}
+                />
+              )}
               {catalog.hosts.length > 0 && (
                 <HostList
                   hosts={filterHosts(catalog.hosts, search, favoriteOnly)}
@@ -633,7 +638,9 @@ export default function App() {
               detail: 'PowerShell или CMD из настроек',
               shortcut: shortcutKeys('new-local', settings?.shortcutBindings),
               run: () => {
-                void sessions.openLocal(settings?.localShell || 'powershell')
+                void sessions.openLocal(
+                  normalizeLocalShell(settings?.localShell, window.terminalApi.platform),
+                )
               },
             },
             {
@@ -645,7 +652,10 @@ export default function App() {
             {
               id: 'files',
               label: files ? 'Скрыть файловый браузер' : 'Показать файловый браузер',
-              detail: 'Файлы SSH, WSL и этого компьютера',
+              detail:
+                window.terminalApi.platform === 'linux'
+                  ? 'Файлы SSH и этого компьютера'
+                  : 'Файлы SSH, WSL и этого компьютера',
               run: () => setFiles(!files),
             },
             {

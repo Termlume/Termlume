@@ -95,7 +95,7 @@ contextBridge.exposeInMainWorld('terminalApi', {
     beginExternalDrag: (request: FileDragRequest) =>
       ipcRenderer.invoke('terminal:begin-external-drag', request).then((response) => {
         if (!response?.ok) throw new Error(response?.error?.message || 'Не удалось перенести файл')
-        return response.value === true
+        return typeof response.value === 'string' ? response.value : response.value === true
       }),
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     onTransfer: (listener: (entry: unknown) => void) => {
@@ -140,7 +140,8 @@ contextBridge.exposeInMainWorld('terminalApi', {
     answer: (challengeId: string, answer: unknown) =>
       call('sessions.answer', { challengeId, answer }),
     open: (profileId: string) => call('sessions.open', { profileId }),
-    openLocal: (shell: 'powershell' | 'cmd') => call('sessions.openLocal', { shell }),
+    openLocal: (shell: import('../shared/contracts').LocalShell) =>
+      call('sessions.openLocal', { shell }),
     openTemporary: (profile: unknown, secret?: string) =>
       call('sessions.openTemporary', { profile, secret }),
     write: (id: string, data: string) => call('sessions.write', { id, data }),

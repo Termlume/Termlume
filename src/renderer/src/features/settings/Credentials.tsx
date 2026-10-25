@@ -182,7 +182,7 @@ export function Credentials({ onDirtyChange }: { onDirtyChange?: (dirty: boolean
           </nav>
           <p className="credentials-security">
             <ShieldCheck size={14} aria-hidden="true" />
-            Секреты защищены Windows
+            Секреты защищены системным хранилищем
           </p>
         </aside>
         <div className="credentials-detail">
@@ -264,6 +264,11 @@ export function Credentials({ onDirtyChange }: { onDirtyChange?: (dirty: boolean
                           <input
                             disabled={busy}
                             value={editing.keyPath || ''}
+                            placeholder={
+                              window.terminalApi.platform === 'linux'
+                                ? '~/.ssh/id_ed25519'
+                                : 'C:\\Users\\...\\.ssh\\id_ed25519'
+                            }
                             onChange={(event) =>
                               setEditing({ ...editing, keyPath: event.target.value })
                             }

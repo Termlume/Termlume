@@ -6,6 +6,7 @@ import type {
   FileEntry,
   FileAccessMode,
   FileActivity,
+  LocalShell,
 } from '../../../../shared/contracts'
 import { FileList, formatPermissions } from './FileList'
 import { PathBar } from './PathBar'
@@ -30,7 +31,7 @@ export function SftpBrowser({
   mode?: 'two-panel' | 'remote-only'
   refreshToken?: number
   unsupportedReason?: string
-  localShell?: 'powershell' | 'cmd'
+  localShell?: LocalShell
   active?: boolean
   terminalAvailable?: boolean
   askDownloadDirectory?: boolean
@@ -244,7 +245,11 @@ export function SftpBrowser({
   }
   function path(side: Side, name?: string) {
     const base = side === 'local' ? localPath : remotePath
-    const separator = side === 'local' || accessMode === 'local' || /^\\\\/.test(base) ? '\\' : '/'
+    const separator =
+      ((side === 'local' || accessMode === 'local') && window.terminalApi.platform !== 'linux') ||
+      /^\\\\/.test(base)
+        ? '\\'
+        : '/'
     return name ? base.replace(/[\\/]$/, '') + separator + name : base
   }
   function navigate(side: Side, next: string) {
@@ -254,7 +259,7 @@ export function SftpBrowser({
   }
   function parent(side: Side) {
     const current = path(side)
-    if (side === 'local' || accessMode === 'local')
+    if ((side === 'local' || accessMode === 'local') && window.terminalApi.platform !== 'linux')
       navigate(side, current.replace(/[\\/][^\\/]+[\\/]?$/, '') || current)
     else if (/^\\\\/.test(current)) {
       const parts = current.split('\\').filter(Boolean)
@@ -381,7 +386,7 @@ export function SftpBrowser({
     const files = Array.from(event.dataTransfer.files),
       paths = files.map((file) => window.terminalApi.files.getPathForFile(file))
     if (!paths.length || paths.some((source) => !source)) {
-      setTransferError('Перетащите файлы из Проводника Windows')
+      setTransferError('Перетащите файлы из файлового менеджера')
       return
     }
     try {
@@ -421,7 +426,7 @@ export function SftpBrowser({
     if (accessMode === 'local' && localShell === 'cmd' && /["%!]/.test(fullPath))
       throw new Error('Этот путь нельзя безопасно вставить в cmd. Используйте копирование пути.')
     const quoted =
-      accessMode === 'local'
+      accessMode === 'local' && (localShell === 'powershell' || localShell === 'cmd')
         ? localShell === 'cmd'
           ? '"' + fullPath + '"'
           : "'" + fullPath.replaceAll("'", "''") + "'"
@@ -597,6 +602,7 @@ export function SftpBrowser({
                   }}
                   onParent={() => parent(side)}
                   dragOwner={dragOwner.current + ':' + side + ':' + (sessionId || '')}
+                  nativeDrag={window.terminalApi.platform === 'linux'}
                   onMove={
                     side === 'local' || remoteCapabilities?.rename
                       ? (source, directory) => {
@@ -625,6 +631,26 @@ export function SftpBrowser({
                             size: entry.size,
                             modifiedAt: entry.modifiedAt,
                           }
+                          if (window.terminalApi.platform === 'linux') {
+                            return window.terminalApi.files
+                              .beginExternalDrag({ ...request, phase: 'prepare' })
+                              .then((token) => {
+                                if (typeof token !== 'string') return false
+                                // Publish the source path before the native drag loop starts, so an
+                                // in-window drop can resolve back to its remote file without uploading.
+                                setTimeout(() => {
+                                  if (activeSession.current !== request.sessionId) return
+                                  void window.terminalApi.files
+                                    .beginExternalDrag({ ...request, phase: 'start', token })
+                                    .catch((error) => setTransferError(String(error)))
+                                }, 0)
+                                return token
+                              })
+                              .catch((error) => {
+                                setTransferError(String(error))
+                                return false
+                              })
+                          }
                           // Let Chromium release its drag capture before native OLE takes over.
                           setTimeout(() => {
                             if (activeSession.current !== request.sessionId) return
@@ -652,7 +678,9 @@ export function SftpBrowser({
             ...(!context.entry.isSymlink
               ? [{ label: 'Открыть', run: () => openEntry(context.side, context.entry) }]
               : []),
-            ...(context.entry.type === 'file' && !context.entry.isSymlink
+            ...(context.entry.type === 'file' &&
+            !context.entry.isSymlink &&
+            window.terminalApi.platform !== 'linux'
               ? [
                   {
                     label: 'Открыть с помощью…',

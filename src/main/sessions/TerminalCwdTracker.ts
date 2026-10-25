@@ -84,14 +84,22 @@ export class TerminalCwdTracker {
   }
 
   private promptPath(): { path: string; host?: string } | undefined {
-    if (this.profile.protocol === 'local') {
+    if (
+      this.profile.protocol === 'local' &&
+      (this.profile.shell === 'cmd' || this.profile.shell === 'powershell')
+    ) {
       const match =
         this.profile.shell === 'powershell'
           ? /^PS ((?:[A-Za-z]:\\|\\\\)[^<>|?*\r\n]*)> $/.exec(this.line)
           : /^((?:[A-Za-z]:\\|\\\\)[^<>|?*\r\n]*)> ?$/.exec(this.line)
       return match && cleanPath(match[1]) ? { path: match[1] } : undefined
     }
-    if (this.profile.protocol !== 'ssh' && this.profile.protocol !== 'wsl') return
+    if (
+      this.profile.protocol !== 'ssh' &&
+      this.profile.protocol !== 'wsl' &&
+      this.profile.protocol !== 'local'
+    )
+      return
     const match =
       /^([A-Za-z_][\w.-]*)@([A-Za-z0-9][\w.-]*):((?:\/[^\r\n]*|~(?:\/[^\r\n]*)?))[$#] $/.exec(
         this.line,
@@ -117,7 +125,10 @@ export class TerminalCwdTracker {
         )
           return
         let path = decodeURIComponent(uri.pathname)
-        if (this.profile.protocol === 'local') {
+        if (
+          this.profile.protocol === 'local' &&
+          (this.profile.shell === 'cmd' || this.profile.shell === 'powershell')
+        ) {
           if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1).replace(/\//g, '\\')
           else if (uri.hostname) path = `\\\\${uri.hostname}${path.replace(/\//g, '\\')}`
           else return
@@ -129,7 +140,8 @@ export class TerminalCwdTracker {
     } else if (text.startsWith('1337;CurrentDir=')) {
       const path = text.slice('1337;CurrentDir='.length)
       if (
-        this.profile.protocol === 'local'
+        this.profile.protocol === 'local' &&
+        (this.profile.shell === 'cmd' || this.profile.shell === 'powershell')
           ? /^(?:[A-Za-z]:\\|\\\\)/.test(path)
           : path.startsWith('/')
       )
